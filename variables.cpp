@@ -18,5 +18,5 @@ std::string folder;
 std::vector< std::string> server_filename_vector;
 std::vector< std::string> client_filename_vector;
 
-std::vector< std::unique_ptr<std::istream,
-             std::function<void(std::istream*)>> > g_inputs;
+//std::vector< std::unique_ptr<std::istream,
+//             std::function<void(std::istream*)>> > g_inputs;

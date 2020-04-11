@@ -2,6 +2,7 @@
 #define PACKET_HANDLER_HPP_
 
 #include <pcap.h>
+#include <netinet/if_ether.h>
 
 enum class FlowState {
 	/// Waiting for a flow
@@ -32,13 +33,13 @@ struct Packet {
 };
 typedef struct Packet MyPacket;
 
-struct ether_header
-{
-  u_int8_t  ether_dhost[ETH_ALEN];	/* destination eth addr	*/
-  u_int8_t  ether_shost[ETH_ALEN];	/* source ether addr	*/
-  u_int16_t ether_type;		        /* packet type ID field	*/
-} __attribute__ ((__packed__));
-
+//struct ether_header
+//{
+//  u_int8_t  ether_dhost[ETH_ALEN];	/* destination eth addr	*/
+//  u_int8_t  ether_shost[ETH_ALEN];	/* source ether addr	*/
+//  u_int16_t ether_type;		        /* packet type ID field	*/
+//} __attribute__ ((__packed__));
+//
 typedef struct EthHeader
 {
     u_char dst_mac[6];
@@ -57,8 +58,8 @@ typedef struct IpHeader
     u_char ttl:8;
     u_char protocol:8;
     int checksum:16;
-    uint32_t sourceIP[4];
-    uint32_t destIP[4];
+    uint32_t sourceIP;
+    uint32_t destIP;
 }MyIpHdr;
 
 typedef struct TcpHeader
@@ -66,7 +67,7 @@ typedef struct TcpHeader
     u_short sport;
     u_short dport;
     u_int seq;
-    u_int ack;
+    u_int ack_seq;
     uint16_t ns:1;
 	uint16_t res:3;
 	uint16_t doff:4;
@@ -88,9 +89,9 @@ typedef struct TcpHeader
 }MyTcpHdr;
 
 /// Handle packets captured at server interface
-extern std::bool server_packet_handler(const struct pcap_pkthdr* pkthdr, const u_char* packet);
+extern bool server_packet_handler(const struct pcap_pkthdr* pkthdr, const u_char* packet);
 /// Handle packets captured at client interface
-extern std::bool client_packet_handler(const struct pcap_pkthdr* pkthdr, const u_char* packet);
+extern bool client_packet_handler(const struct pcap_pkthdr* pkthdr, const u_char* packet);
 
 
 

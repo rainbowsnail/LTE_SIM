@@ -1,8 +1,14 @@
 #include "extractor.hpp"
 #include "variables.hpp"
 #include "parameter.hpp"
+#include "exception.hpp"
 #include "macros.hpp"
+#include <fstream>
+#include <sstream>
 #include <iostream>
+#include <queue>
+#include <vector>
+#include <string.h>
 
 /// Column number in csv
 static int ts_col = -1;
@@ -20,24 +26,29 @@ static int payload_len_col = -1;
 static int header_len_col = -1;
 static int rtt_col = -1;
 
+static void initiate();
 static bool is_server_ip(std::string cur_ip);
-static void set_column_number(std::vector<string> *fields);
-static void read_csv(string filename);
+static void set_column_number(std::vector<std::string> *fields);
+static void read_csv(std::string filename, std::vector<std::vector<std::string> >* p_vector);
 static void clean_up();
+static void extract_goodput();
+static void extract_loss();
+static void extract_min_rtt();
+static bool in_client_vector(const std::vector< std::string> *server_packet);
 
 static double server_flow_start_time = 0;
 static double client_flow_start_time = 0;
-static std::vector<std::vector<string> >server_packet_vector
-static std::vector<std::vector<string> >client_packet_vector;
+static std::vector<std::vector<std::string> >server_packet_vector;
+static std::vector<std::vector<std::string> >client_packet_vector;
 
 /// The vector storing loss rate for every 10 ms
-extern std::vector<std::float> server_loss_vector(DURATION/GRANULARITY,0);
-extern std::vector<std::int> server_loss_packet_vector(DURATION/GRANULARITY,0);
-extern std::vector<std::int> server_tot_packet_vector(DURATION/GRANULARITY,0);
+//extern std::vector<float> server_loss_vector(DURATION/GRANULARITY,0);
+extern std::vector<int> server_loss_packet_vector(DURATION/GRANULARITY,0);
+extern std::vector<int> server_tot_packet_vector(DURATION/GRANULARITY,0);
 /// The vector storing client goodput for every 10 ms
-extern std::vector<std::int> client_goodput_vector(DURATION/GRANULARITY,0);
+//extern std::vector<int> client_goodput_vector(DURATION/GRANULARITY,0);
 /// The vector storing server perceived rtt (ms)
-extern std::vector<std::double> server_rtt_vector(DURATION/GRANULARITY,MAX_FLOAT_NUM);
+//extern std::vector<double> server_rtt_vector(DURATION/GRANULARITY,MAX_FLOAT_NUM);
 
 void extract_trace(std::string server_name, std::string client_name) {	
     initiate();
@@ -57,11 +68,11 @@ static void extract_min_rtt() {
 		return;
 	}
 	for (int i = 1; i < server_packet_vector.size(); ++i) {
-		if (!is_server_ip(server_packet_vector[j][ip_dst_col])) {
+		if (!is_server_ip(server_packet_vector[i][ip_dst_col])) {
 			continue;
 		}
 		double cur_packet_ts = std::stod(server_packet_vector[i][ts_col]);
-		int index_left = (cur_packet_ts - flow_start_time)/GRANULARITY;
+		int index_left = (cur_packet_ts - server_flow_start_time)/GRANULARITY;
 		int index_right = RTT_WINDOW/GRANULARITY;
 		if (index_right > MAX_FLOW_DURATION/GRANULARITY) {
 			index_right = MAX_FLOW_DURATION/GRANULARITY;
@@ -114,14 +125,14 @@ static void extract_loss() {
 		}
 
 		// Index in client_loss_vector
-		int index = (cur_packet_ts - flow_start_time)/GRANULARITY;
+		int index = (cur_packet_ts - server_flow_start_time)/GRANULARITY;
 		server_tot_packet_vector[index]++;
 		if (!in_client_vector(&(server_packet_vector[i]))) {
 			server_loss_packet_vector[index]++;
 		}
 	}
 	for (int i = 0; i < server_loss_packet_vector.size(); ++i) {
-		server_loss_vector[i] = float(server_loss_packet_vector)/float(server_tot_packet_vector);
+		server_loss_vector[i] = float(server_loss_packet_vector[i])/float(server_tot_packet_vector[i]);
 	}
 	server_loss_packet_vector.clear();
 	server_tot_packet_vector.clear();
@@ -147,15 +158,15 @@ static void clean_up(){
 static void extract_goodput() {
 	for (int i = 1; i < client_packet_vector.size();i++) {
 		// Current packet timestamp
-		double cur_packet_ts = std::stod(client_packet_vector[i][TS]);
+		double cur_packet_ts = std::stod(client_packet_vector[i][ts_col]);
 		
 		// Set flow starting time
-		if (client_flow_start_time == 0 && client_packet_vector[i][SYN].compare("1") == 0) {
+		if (client_flow_start_time == 0 && client_packet_vector[i][syn_col].compare("1") == 0) {
 			client_flow_start_time = cur_packet_ts;
 		}
 
 		// If flow has not started, skip this packet and check next packet
-		if (flow_start_time == 0){
+		if (client_flow_start_time == 0){
 			continue;
 		}
 
@@ -165,7 +176,7 @@ static void extract_goodput() {
 		}
 
 		// Index in client_goodput_vector
-		int index = (cur_packet_ts - flow_start_time)/GRANULARITY;
+		int index = (cur_packet_ts - client_flow_start_time)/GRANULARITY;
 
 		// Packet size = TCP header + TCP payload + IP header
 		int packet_size = std::stoi(client_packet_vector[i][header_len_col])
@@ -177,35 +188,35 @@ static void extract_goodput() {
 	}
 }
 
-static void set_column_number(std::vector<string> *fields) {
-	for (int i = 0; i < fields.size();i++) {
-        if (fields[i].compare(TS) == 0) {
+static void set_column_number(std::vector<std::string> *fields) {
+	for (int i = 0; i < fields->size();i++) {
+        if ((*fields)[i].compare(TS) == 0) {
 			ts_col = i;
-		} else if (fields[i].compare(IP_SRC) == 0) {
+		} else if ((*fields)[i].compare(IP_SRC) == 0) {
 			ip_src_col = i;
-		} else if (fields[i].compare(IP_DST) == 0) {
+		} else if ((*fields)[i].compare(IP_DST) == 0) {
 			ip_dst_col = i;
-		} else if (fields[i].compare(ACK) == 0) {
+		} else if ((*fields)[i].compare(ACK) == 0) {
 			ack_col = i;
-		} else if (fields[i].compare(SEQ) == 0) {
+		} else if ((*fields)[i].compare(SEQ) == 0) {
 			syn_col = i;
-		} else if (fields[i].compare(FIN) == 0) {
+		} else if ((*fields)[i].compare(FIN) == 0) {
 			fin_col = i;
-		} else if (fields[i].compare(RST) == 0) {
+		} else if ((*fields)[i].compare(RST) == 0) {
 			rst_col = i;
-		} else if (fields[i].compare(ACK_SEQ) == 0) {
+		} else if ((*fields)[i].compare(ACK_SEQ) == 0) {
 			ack_seq_col = i;
-		} else if (fields[i].compare(SEQ) == 0) {
+		} else if ((*fields)[i].compare(SEQ) == 0) {
 			seq_col = i;
-		} else if (fields[i].compare(TSVAL) == 0) {
+		} else if ((*fields)[i].compare(TSVAL) == 0) {
 			tsval_col = i;
-		} else if (fields[i].compare(TSECR) == 0) {
+		} else if ((*fields)[i].compare(TSECR) == 0) {
 			tsecr_col = i;
-		} else if (fields[i].compare(PAYLOAD_LENGTH) == 0) {
+		} else if ((*fields)[i].compare(PAYLOAD_LENGTH) == 0) {
 			payload_len_col = i;
-		} else if (fields[i].compare(HEADER_LEN) == 0) {
+		} else if ((*fields)[i].compare(HEADER_LEN) == 0) {
 			header_len_col = i;
-		} else if (fileds[i].compare(RTT) == 0) {
+		} else if ((*fields)[i].compare(RTT) == 0) {
 			rtt_col = i;
 		}
 		
@@ -225,12 +236,12 @@ static void set_column_number(std::vector<string> *fields) {
 
 /// Check if a packet is in client vector
 /// Return true when it is in client vector 
-static bool in_client_vector(const vector< std::string> *server_packet){
+static bool in_client_vector(const std::vector< std::string> *server_packet){
 	for (auto packet : client_packet_vector) {
 		if (is_server_ip(packet[ip_src_col])
-			&& server_packet[seq_col].compare(packet[seq_col]) == 0
-			&& server_packet[tsval_col].compare(packet[tsval_col]) == 0
-			&& server_packet[tsecr_col].compare(packet[tsecr_col]) == 0)
+			&& (*server_packet)[seq_col].compare(packet[seq_col]) == 0
+			&& (*server_packet)[tsval_col].compare(packet[tsval_col]) == 0
+			&& (*server_packet)[tsecr_col].compare(packet[tsecr_col]) == 0)
 			return true;
 	}
 	return false;
@@ -249,21 +260,21 @@ static bool is_server_ip(std::string cur_ip){
 
 /// Read a packet csv file and fill in the vector
 /// outter means a packet, insider means a field
-static void read_csv(string filename, const std::vector<std::vector<string> >* p_vector){
-	auto file = std::ifstream(filename);
+static void read_csv(std::string filename, std::vector<std::vector<std::string> >* p_vector){
+	auto file = std::ifstream(filename.c_str());
     if (file.fail()) {
         throw ArgumentError(
             "Failed to open range file: "
             + ("\"" + filename + "\"")
         );
     }
-	string _line;
+	std::string _line;
 	while (getline(file, _line))
 	{
 		//cout << "each line : " << _line << endl;
-		stringstream stream(_line);
-		string _sub;
-		vector<string> subArray;
+		std::stringstream stream(_line);
+		std::string _sub;
+		std::vector<std::string> subArray;
  
 		while (getline(stream, _sub, ','))
 			subArray.push_back(_sub);
