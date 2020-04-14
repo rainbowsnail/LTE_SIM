@@ -15,9 +15,13 @@ static void* sniff_interface(void* ptr) {
     char errbuf[PCAP_ERRBUF_SIZE];
 
     if (*host == Host::Server) {
-        dev = server_interface.c_str();
+        //dev = server_interface.c_str();
+        handler = pcap_open_live(server_interface.c_str(), BUFSIZ, 0, 1, errbuf);
+        server_pcap_t = handler;
     } else if (*host == Host::Client){
-        dev = client_interface.c_str();
+        //dev = client_interface.c_str();
+        handler = pcap_open_live(client_interface.c_str(), BUFSIZ, 0, 1, errbuf);
+        client_pcap_t = handler;
     } else {
         std::cerr << "Can't decide the nif is client or server!" << std::endl;
     }
@@ -28,10 +32,10 @@ static void* sniff_interface(void* ptr) {
     //    cout << "pcap_lookupdev() failed: " << errbuf << endl;
     //    return 1;
     //}
-    handler = pcap_open_live(dev, BUFSIZ, 0, 1, errbuf);
+    //handler = pcap_open_live(dev, BUFSIZ, 0, 1, errbuf);
     if (handler == NULL) {
       cout << "pcap_open_live() failed: " << errbuf << endl;
-      return 1;
+      return NULL;
     }
 
     //if (pcap_loop(descr, -1, server_packet_handler, NULL) < 0) {
@@ -40,14 +44,15 @@ static void* sniff_interface(void* ptr) {
     //}
     struct pcap_pkthdr *pkt_header;   
     u_char *pkt_data;         
-    std::int retval;
-    while ((retval = pcap_next_ex(handler, &pkt_header, (const u_char **) &pkt_data)) >= 0)   {
+    int retval;
+    cout << "----------- Start sniffing packet! ------------" << std::endl;
+        while ((retval = pcap_next_ex(handler, &pkt_header, (const u_char **) &pkt_data)) >= 0)   {
         /// 
-        std::bool is_end = false;
+        bool is_end = false;
         if(*host == Host::Server) {
-            is_end = server_packet_handler(pkt_header, pkt_data);
+            is_end = server_packet_handler(pkt_header, pkt_data, handler);
         } else if (*host == Host::Client) {
-            is_end = client_packet_handler(pkt_header, pkt_data);
+            is_end = client_packet_handler(pkt_header, pkt_data, handler);
         }
         if (is_end) break;
     } 
@@ -55,10 +60,10 @@ static void* sniff_interface(void* ptr) {
 }
 
 static void smain() {
-    char *sdev,*cdev;
+    //char *sdev,*cdev;
     //std::vector<pthread_t*> threads;
-    sdev = server_interface.s_str();
-    cdev = client_interface.c_str();
+    const char * sdev = server_interface.c_str();
+    const char * cdev = client_interface.c_str();
     Host server = Host::Server;
     Host client = Host::Client;
 
@@ -69,28 +74,31 @@ static void smain() {
     *client_is_server = false;
     */
     while (!server_filename_queue.empty() && !client_filename_queue.empty()) {
-        auto server_name = server_filename_queue.pop();
-        auto client_name = client_filename_queue.pop();
-        if (server_name == NULL or client_name == NULL){
-            exit(0);
-        }
+        auto server_name = server_filename_queue.front();
+        auto client_name = client_filename_queue.front();
+        server_filename_queue.pop();
+        client_filename_queue.pop();
+        //if (server_name == "" || client_name == ""){
+        //    exit(0);
+        //}
         server_filename_queue.push(server_name);
         client_filename_queue.push(client_name);
         extract_trace(server_name, client_name);
-    
+        packet_handler_initiate();
+
         pthread_t* client_thread = new pthread_t;
         pthread_t* server_thread = new pthread_t;
 
         // create thread
-        pthread_create(client_thread, NULL, &sniff_interface, (void *) client);
-        pthread_create(server_thread, NULL, &sniff_interface, (void *) server);
+        pthread_create(server_thread, NULL, &sniff_interface, (void *) &server);
+        pthread_create(client_thread, NULL, &sniff_interface, (void *) &client);
         
         //pthread_create(client_thread, NULL, &sniff_interface, (void *) client_is_server);
         //pthread_create(server_thread, NULL, &sniff_interface, (void *) server_is_server);
         
         /// wait for threads to terminate.
-        pthread_join(server_thread, NULL);
-        pthread_join(client_thread, NULL);
+        pthread_join(*server_thread, NULL);
+        pthread_join(*client_thread, NULL);
         delete server_thread;
         delete client_thread;
     }
@@ -131,7 +139,7 @@ static void parse_option(int argc, char **argv) {
         ("trace", po::value<std::string>(),
             "Trace folder. "
             "Defaultly set to ./trace/")
-        ("no", po::value<std::int>(),
+        ("no", po::value<int>(),
             "NO. of trace pair.")
         ("server", po::value<std::string>(),
             "Server CSV (from pcap). "
@@ -147,7 +155,9 @@ static void parse_option(int argc, char **argv) {
             "e.g. eth1 .\n")
         ("sip", po::value<std::string>(),
             "Server IP (e.g. 106.58.5.123).\n")
-        ("cip", po::value<std::string>(),
+        ("tsip", po::value<std::string>(),
+            "Server IP (e.g. 106.58.5.123).\n")
+        ("tcip", po::value<std::string>(),
             "Client IP (e.g. 106.58.5.124).\n")
         ("lte", po::value<std::string>(),
             "Mobileinsight XML file.\n");
@@ -170,13 +180,13 @@ static void parse_option(int argc, char **argv) {
     if (vm.count("sif")) {
         server_interface = vm["sif"].as<std::string>();
     } else {
-        server_interface = "eth0";
+        server_interface = "ens8";
     }
 
     if (vm.count("cif")) {
-        client_interface = vm["sif"].as<std::string>();
+        client_interface = vm["cif"].as<std::string>();
     } else {
-        client_interface = "eth1";
+        client_interface = "ens7";
     }
 
     if (vm.count("sip")) {
@@ -186,17 +196,31 @@ static void parse_option(int argc, char **argv) {
         while (getline(stream, _sub, ','))
             server_ip_vector.push_back(_sub);
     } else {
-        server_ip_vector.push_back("106.58.5.123");
+        server_ip_vector.push_back("10.4.112.4");
+        server_ip_vector.push_back("172.17.0.4");
+        server_ip_vector.push_back("172.17.0.6");
+        server_ip_vector.push_back("106.54.147.34");
+        server_ip_vector.push_back("106.54.147.38");
     }
 
-    if (vm.count("cip")) {
-        client_ip = vm["cip"].as<std::string>();
+    if (vm.count("tsip")) {
+        // std::string = vm["sip"].as<std::string>();
+        stringstream stream(vm["tsip"].as<std::string>());
+        string _sub; 
+        while (getline(stream, _sub, ','))
+            server_ip_vector.push_back(_sub);
     } else {
-        client_ip = "106.58.5.124";
+        server_ip = "10.4.112.4";
     }
 
+    if (vm.count("tcip")) {
+        client_ip = vm["tcip"].as<std::string>();
+    } else {
+        client_ip = "10.4.96.4";
+    }
+    std::string folder;
     if (vm.count("folder")) {
-        folder = vm["folder"].as<>(std::string)();
+        folder = vm["folder"].as<std::string>();
         if (folder[folder.size()-1] != '/') {
             folder += "/";
         }
@@ -218,7 +242,7 @@ static void parse_option(int argc, char **argv) {
         server_filename_queue.push(folder + vm["server"].as<std::string>());
         client_filename_queue.push(folder + vm["client"].as<std::string>());        
     } else if (vm.count("auto")) {
-        std::int trace_count = vm.count("auto").as<std::int>();
+        int trace_count = std::stoi(vm["auto"].as<std::string>());
         for (int i = 1; i <= trace_count; ++i){
             std::string no = std::to_string(i);
             auto server_name = folder + no + "s.csv";

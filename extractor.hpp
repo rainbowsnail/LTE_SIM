@@ -1,11 +1,13 @@
 #ifndef EXTRACTOR_HPP_
 #define EXTRACTOR_HPP_
-#include "parameter.hpp"
+//#include "parameter.hpp"
 #include <string>
 #include <vector>
-extern std::vector<float> server_loss_vector(DURATION/GRANULARITY,0);
-extern std::vector<double> server_rtt_vector(DURATION/GRANULARITY,MAX_FLOAT_NUM);
-extern std::vector<int> client_goodput_vector(DURATION/GRANULARITY,0);
+
+extern std::vector<float> server_loss_vector;
+extern std::vector<double> server_rtt_vector;
+extern std::vector<int> client_goodput_vector;
+
 /*
 enum class CsvField {
 	TS,

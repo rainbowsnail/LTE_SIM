@@ -3,7 +3,10 @@
 
 #include <pcap.h>
 #include <netinet/if_ether.h>
+#include <sys/types.h>
+#include <bits/endian.h>
 
+extern pcap_t *server_pcap_t, *client_pcap_t;
 enum class FlowState {
 	/// Waiting for a flow
 	Waiting,
@@ -47,10 +50,44 @@ typedef struct EthHeader
     u_short eth_type;
 }MyEthHdr;
 
+struct MyIpHdr
+{ 
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+    unsigned int header_len:4; // Internet header length
+    unsigned int version:4;
+#elif __BYTE_ORDER == __BIG_ENDIAN
+    unsigned int version:4;
+    unsigned int header_len:4;
+#else
+# error "Please fix <bits/endian.h>"
+#endif
+    uint8_t tos;    // DSCP & ECN
+    uint16_t tot_len;   // total packet length
+    uint16_t id;
+
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+    unsigned int fragoff1:5;
+    unsigned int flags:3;
+#elif __BYTE_ORDER == __BIG_ENDIAN
+    unsigned int flags:3;
+    unsigned int fragoff1:5;
+    
+#else
+# error "Please fix <bits/endian.h>"
+#endif
+    uint8_t fragoff2;
+    uint8_t ttl;
+    uint8_t protocol;
+    uint16_t checksum;
+    uint32_t sourceIP;
+    uint32_t destIP;
+    /*The options start here. */ 
+}__attribute__((packed));
+/*
 typedef struct IpHeader
 {
-    int version:4;
-    int header_len:4;
+    unsigned int version:4;
+    unsigned int header_len:4;
     u_char tos:8;
     int total_len:16;
     int ident:16;
@@ -60,7 +97,7 @@ typedef struct IpHeader
     int checksum:16;
     uint32_t sourceIP;
     uint32_t destIP;
-}MyIpHdr;
+}MyIpHdr;*/
 
 typedef struct TcpHeader
 {
@@ -88,10 +125,11 @@ typedef struct TcpHeader
     u_short urg_ptr;
 }MyTcpHdr;
 
+extern void packet_handler_initiate();
 /// Handle packets captured at server interface
-extern bool server_packet_handler(const struct pcap_pkthdr* pkthdr, const u_char* packet);
+extern bool server_packet_handler(const struct pcap_pkthdr* pkthdr, const u_char* packet, pcap_t *handler);
 /// Handle packets captured at client interface
-extern bool client_packet_handler(const struct pcap_pkthdr* pkthdr, const u_char* packet);
+extern bool client_packet_handler(const struct pcap_pkthdr* pkthdr, const u_char* packet, pcap_t *handler);
 
 
 

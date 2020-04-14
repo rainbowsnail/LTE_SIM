@@ -8,6 +8,7 @@
 #include <iostream>
 #include <queue>
 #include <vector>
+#include <set>
 #include <string.h>
 
 /// Column number in csv
@@ -26,6 +27,16 @@ static int payload_len_col = -1;
 static int header_len_col = -1;
 static int rtt_col = -1;
 
+struct simple_packet{
+std::string ip;
+std::string seq;
+std::string tsval;
+std::string tsecr;
+};
+inline bool operator<(const simple_packet& lhs, const simple_packet& rhs) {
+	return lhs.tsval < rhs.tsval;
+}
+static std::set<struct simple_packet> client_packet_set;
 static void initiate();
 static bool is_server_ip(std::string cur_ip);
 static void set_column_number(std::vector<std::string> *fields);
@@ -35,6 +46,8 @@ static void extract_goodput();
 static void extract_loss();
 static void extract_min_rtt();
 static bool in_client_vector(const std::vector< std::string> *server_packet);
+static void build_client_map();
+static bool quick_in_client_vector(const std::vector< std::string> *server_packet);
 
 static double server_flow_start_time = 0;
 static double client_flow_start_time = 0;
@@ -42,15 +55,16 @@ static std::vector<std::vector<std::string> >server_packet_vector;
 static std::vector<std::vector<std::string> >client_packet_vector;
 
 /// The vector storing loss rate for every 10 ms
-//extern std::vector<float> server_loss_vector(DURATION/GRANULARITY,0);
-extern std::vector<int> server_loss_packet_vector(DURATION/GRANULARITY,0);
-extern std::vector<int> server_tot_packet_vector(DURATION/GRANULARITY,0);
+std::vector<float> server_loss_vector;//(DURATION/GRANULARITY,0);
+static std::vector<int> server_loss_packet_vector;//(DURATION/GRANULARITY,0);
+static std::vector<int> server_tot_packet_vector;//(DURATION/GRANULARITY,0);
 /// The vector storing client goodput for every 10 ms
-//extern std::vector<int> client_goodput_vector(DURATION/GRANULARITY,0);
+std::vector<int> client_goodput_vector;//(DURATION/GRANULARITY,0);
 /// The vector storing server perceived rtt (ms)
-//extern std::vector<double> server_rtt_vector(DURATION/GRANULARITY,MAX_FLOAT_NUM);
+std::vector<double> server_rtt_vector;//(DURATION/GRANULARITY,MAX_FLOAT_NUM);
 
 void extract_trace(std::string server_name, std::string client_name) {	
+	std::cout << "----------- trace extract start! ------------" << std::endl;
     initiate();
     read_csv(server_name, &server_packet_vector);
     read_csv(client_name, &client_packet_vector);
@@ -59,6 +73,7 @@ void extract_trace(std::string server_name, std::string client_name) {
 	extract_loss();
 	extract_min_rtt();
 	clean_up();
+	std::cout << "----------- trace extract complete! ------------" << std::endl;
 }
 
 static void extract_min_rtt() {
@@ -84,6 +99,7 @@ static void extract_min_rtt() {
 			}
 		}
 	}
+	std::cout << "extract min RTT!" << std::endl;
 	/*
 	for (int i = 1; i < server_packet_vector.size(); i++) {
 		float cur_packet_ts = std::stof(server_packet_vector[i][ts_col]);
@@ -112,6 +128,7 @@ static void extract_min_rtt() {
 /// Check each packet in server, if is is not in client packet vector, mark it as loss
 static void extract_loss() {
 	for (int i = 1; i < server_packet_vector.size();i++) {
+		//std::cout << i <<std::endl;
 		double cur_packet_ts = std::stod(client_packet_vector[i][ts_col]);
 		
 		// Set flow starting time
@@ -124,18 +141,27 @@ static void extract_loss() {
 			continue;
 		}
 
+		// If it exceeds the Max flow duration, discard remaining packets
+		if (cur_packet_ts - server_flow_start_time > MAX_FLOW_DURATION)
+			break;
+
 		// Index in client_loss_vector
 		int index = (cur_packet_ts - server_flow_start_time)/GRANULARITY;
 		server_tot_packet_vector[index]++;
-		if (!in_client_vector(&(server_packet_vector[i]))) {
+		if (!quick_in_client_vector(&(server_packet_vector[i]))) {
 			server_loss_packet_vector[index]++;
 		}
 	}
+
 	for (int i = 0; i < server_loss_packet_vector.size(); ++i) {
-		server_loss_vector[i] = float(server_loss_packet_vector[i])/float(server_tot_packet_vector[i]);
+		if(server_tot_packet_vector[i]!=0){
+			server_loss_vector[i] = float(server_loss_packet_vector[i])/float(server_tot_packet_vector[i]);
+			//std::cout << server_loss_vector[i] << std::endl;
+		}
 	}
 	server_loss_packet_vector.clear();
 	server_tot_packet_vector.clear();
+	std::cout << "extract loss!" << std::endl;
 }
 
 static void initiate() {
@@ -144,6 +170,14 @@ static void initiate() {
 	server_loss_vector.clear();
 	client_goodput_vector.clear();
 	server_rtt_vector.clear();
+	for (int i = 0; i < DURATION/GRANULARITY; ++i){
+		client_goodput_vector.push_back(0);
+		server_rtt_vector.push_back(0);
+		server_loss_vector.push_back(0);
+		server_loss_packet_vector.push_back(0);
+		server_tot_packet_vector.push_back(0);
+	}
+	build_client_map();
 	server_flow_start_time = 0;
 	client_flow_start_time = 0;
 }
@@ -156,7 +190,13 @@ static void clean_up(){
 
 /// Calculate goodput from client packet vector
 static void extract_goodput() {
+	//std::cout << client_goodput_vector.size()<<std::endl;
+	//for (int i = 0; i < DURATION/GRANULARITY; ++i){
+	//	client_goodput_vector.push_back(0);
+	//}
+	//std::cout << client_goodput_vector.size()<<std::endl;
 	for (int i = 1; i < client_packet_vector.size();i++) {
+		//std::cout << i << std::endl;
 		// Current packet timestamp
 		double cur_packet_ts = std::stod(client_packet_vector[i][ts_col]);
 		
@@ -174,10 +214,11 @@ static void extract_goodput() {
 		if (is_server_ip(client_packet_vector[i][ip_dst_col])) {
 			continue;
 		}
-
+		if ((cur_packet_ts - client_flow_start_time)>MAX_FLOW_DURATION)
+			break;
 		// Index in client_goodput_vector
 		int index = (cur_packet_ts - client_flow_start_time)/GRANULARITY;
-
+		//std::cout << index <<std::endl;
 		// Packet size = TCP header + TCP payload + IP header
 		int packet_size = std::stoi(client_packet_vector[i][header_len_col])
 			+ std::stoi(client_packet_vector[i][payload_len_col])
@@ -186,10 +227,16 @@ static void extract_goodput() {
 		// Add this packet size to goodput vector
 		client_goodput_vector[index] += packet_size;
 	}
+	std::cout << "extract goodput!" << std::endl;
+	std::cout << client_goodput_vector.size()<<std::endl;
+	//for (auto tmp : client_goodput_vector) {
+	//	std::cout << tmp << std::endl;
+	//}
 }
 
 static void set_column_number(std::vector<std::string> *fields) {
 	for (int i = 0; i < fields->size();i++) {
+		//std::cout << (*fields)[i] << " ";
         if ((*fields)[i].compare(TS) == 0) {
 			ts_col = i;
 		} else if ((*fields)[i].compare(IP_SRC) == 0) {
@@ -198,7 +245,7 @@ static void set_column_number(std::vector<std::string> *fields) {
 			ip_dst_col = i;
 		} else if ((*fields)[i].compare(ACK) == 0) {
 			ack_col = i;
-		} else if ((*fields)[i].compare(SEQ) == 0) {
+		} else if ((*fields)[i].compare(SYN) == 0) {
 			syn_col = i;
 		} else if ((*fields)[i].compare(FIN) == 0) {
 			fin_col = i;
@@ -218,7 +265,10 @@ static void set_column_number(std::vector<std::string> *fields) {
 			header_len_col = i;
 		} else if ((*fields)[i].compare(RTT) == 0) {
 			rtt_col = i;
-		}
+		} 
+		//else {
+		//	std::cerr << (*fields)[i] << std::endl;
+		//}
 		
 	}
 	/// ts_col might be 0
@@ -233,7 +283,29 @@ static void set_column_number(std::vector<std::string> *fields) {
  		exit(0);
 	}
 }
+static void build_client_map(){
+	for (auto packet : client_packet_vector) {
+		struct simple_packet new_packet;
+		new_packet.ip = packet[ip_src_col];
+		new_packet.seq = packet[seq_col];//.compare(packet[seq_col]) == 0
+		new_packet.tsval = packet[tsval_col];//.compare(packet[tsval_col]) == 0
+		new_packet.tsecr = packet[tsecr_col];
+		client_packet_set.insert(new_packet);
+	}
+}
 
+static bool quick_in_client_vector(const std::vector< std::string> *server_packet){
+	struct simple_packet key;
+	key.ip = (*server_packet)[ip_src_col];
+	key.seq = (*server_packet)[seq_col];
+	key.tsval = (*server_packet)[tsval_col];
+	key.tsecr = (*server_packet)[tsecr_col];
+	if (client_packet_set.find(key) == client_packet_set.end()) {
+		return false;
+	}
+	std::cout << "find a packet" << std::endl;
+	return true;
+}
 /// Check if a packet is in client vector
 /// Return true when it is in client vector 
 static bool in_client_vector(const std::vector< std::string> *server_packet){
@@ -286,5 +358,5 @@ static void read_csv(std::string filename, std::vector<std::vector<std::string> 
 		//cout << endl;
 		(*p_vector).push_back(subArray);
 	}
-	getchar();
+	//getchar();
 }
