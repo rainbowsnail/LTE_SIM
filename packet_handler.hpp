@@ -31,7 +31,7 @@ enum class Direction {
 };
 
 struct Packet { 
-    u_char packet_buf[BUFSIZ];
+    u_char packet_buf[25516];//BUFSIZ
     struct pcap_pkthdr pkthdr;
 };
 typedef struct Packet MyPacket;

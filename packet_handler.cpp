@@ -50,13 +50,18 @@ static bool add_cif_queue(const struct pcap_pkthdr* packet_header, const u_char*
 static MyPacket* pop_sif_queue();
 static MyPacket* pop_cif_queue();
 static bool is_server_ip(std::string src_ip);
+static bool is_client_ip(std::string src_ip);
 
 static void initiate();
 static void clean_up();
 static void sif_send_packet(struct pcap_pkthdr* pkthdr, u_char * packet);
 static void cif_send_packet(struct pcap_pkthdr* pkthdr, u_char * packet);
+static void sif_send_ip_packet(struct pcap_pkthdr* pkthdr, u_char * packet_contect);
+static void cif_send_ip_packet(struct pcap_pkthdr* pkthdr, u_char * packet_contect);
+
 static bool update_state(MyIpHdr* ip_header, MyTcpHdr* tcp_header, double cur_time);
 static float get_loss_rate(MyPacket * packet_tbs) ;
+static bool is_end();
 
 inline static double find_min_rtt(){
 	for (auto tmp_rtt : server_rtt_manage_vector){
@@ -87,44 +92,6 @@ static bool should_drop(float loss_rate){
 	if(rand() < RAND_MAX * loss_rate)
 		return true;
 	return false;
-}
-
-static void* send_sif(void* ptr){
-	char *server_dev;
-	char errbuf[PCAP_ERRBUF_SIZE];
-	//server_dev = server_interface.c_str();
-	//server_pcap_t = pcap_open_live(server_interface.c_str(), BUFSIZ, 0, -1,errbuf ); 
-	while (server_pcap_t == NULL) {
-		continue;
-		//std::cerr<<"Unable to open the client adapter. \n"<<std::endl;
-		//return NULL;
-	}
-	while(true) {
-		// Get a packet to be sent
-		MyPacket * packet_tbs;
-		while(true) {	
-			sif_queue_mutex.lock();
-			//std::unique_lock<std::mutex> lock(sif_queue_mutex);
-			if (sif_queueing_packet.size() != 0){
-				sif_queue_mutex.unlock();
-				packet_tbs = pop_sif_queue();
-				std::cout << "a packet to be sent on sif" <<std::endl;
-				//std::unique_lock<std::mutex> unlock(sif_queue_mutex);
-				break;
-			}
-			sif_queue_mutex.unlock();
-			//std::unique_lock<std::mutex> unlock(sif_queue_mutex);
-		}
-		// Send the packet when client capacity allows
-		
-		//while(!cif_has_room_for(packet_tbs)) {
-		//	continue;
-		//}
-		sif_send_packet(&(packet_tbs->pkthdr),packet_tbs->packet_buf);
-		std::cout << "sif sent a packet" << std::endl;
-		delete packet_tbs;
-	}
-	return NULL;
 }
 
 static float get_loss_rate(MyPacket * packet_tbs) {
@@ -198,9 +165,13 @@ bool server_packet_handler(const struct pcap_pkthdr* packet_header, const u_char
 	MyTcpHdr* tcp = (MyTcpHdr*)(packet_content + sizeof(MyEthHdr) + sizeof(MyIpHdr));
 	//MyTcpHdr* tcp = (MyTcpHdr*)(packet_content + sizeof(MyEthHdr) + ip->header_len);
 	double cur_time = tv2ts(packet_header->ts);
-	bool flow_end = update_state(ip, tcp, cur_time);
-	if (flow_end) return true;
-	add_cif_queue(packet_header, packet_content);
+	bool should_forward = update_state(ip, tcp, cur_time);
+	if (should_forward){
+		add_cif_queue(packet_header, packet_content);
+	}
+	if (is_end()) {
+		return true;
+	}
 	return false;
 }
 
@@ -218,6 +189,7 @@ bool client_packet_handler(const struct pcap_pkthdr* packet_header, const u_char
 	}
 
 	MyIpHdr* ip=(MyIpHdr*)(packet_content + sizeof(MyEthHdr));
+	std::cout << ntohs(ip->tot_len) << std::endl;
 	if(ip->protocol != 6){
 		//TCP is not used!
 		return false;
@@ -233,19 +205,36 @@ bool client_packet_handler(const struct pcap_pkthdr* packet_header, const u_char
 	//std::cout << "ip header len =" << (int)ip->header_len << std::endl;
 	MyTcpHdr* tcp = (MyTcpHdr*)(packet_content + sizeof(MyEthHdr) + sizeof(MyIpHdr));
 	double cur_time = tv2ts(packet_header->ts);
-	bool flow_end = update_state(ip, tcp,cur_time);
-	if (flow_end) return true;
-	add_sif_queue(packet_header, packet_content);
+	bool should_forward = update_state(ip, tcp, cur_time);
+	if (should_forward){
+		add_sif_queue(packet_header, packet_content);
+	}
+	if (is_end()) {
+		return true;
+	}
 	return false;
 }
 
 static bool add_sif_queue(const struct pcap_pkthdr* packet_header, const u_char* packet){
 	std::cout << "add sif queue!" << std::endl;
 	u_int packet_size= packet_header->len;
+	std::cout << "add_sif_queue " << sizeof(u_char) * packet_size + 1 << std::endl;
 	MyPacket * p_packet = new MyPacket;
 	//void* packet_content = packet;
-	memcpy((char*)packet, p_packet->packet_buf, sizeof(u_char) * packet_size + 1); 
-	memcpy((struct pcap_pkthdr*)packet_header,&(p_packet->pkthdr),sizeof(struct pcap_pkthdr));
+	//memcpy((u_char*)packet, p_packet->packet_buf, sizeof(u_char) * packet_size + 1); 
+	for (int i = 0; i < sizeof(u_char) * packet_size + 1; ++i)
+		p_packet->packet_buf[i] = packet[i];
+	//MyIpHdr* ip=(MyIpHdr*)(p_packet->packet_buf + sizeof(MyEthHdr));
+
+	//std::cout << ntohs(ip->tot_len) << std::endl;
+	//ip=(MyIpHdr*)(packet + sizeof(MyEthHdr));
+	//std::cout << ntohs(ip->tot_len) << std::endl;
+	//memcpy((struct pcap_pkthdr*)packet_header,&(p_packet->pkthdr),sizeof(struct pcap_pkthdr));
+	p_packet->pkthdr.ts = packet_header->ts;
+	p_packet->pkthdr.caplen = packet_header->caplen;
+	p_packet->pkthdr.len = packet_header->len;
+	//std::cout << p_packet->pkthdr.len <<std::endl;
+
 	sif_queue_mutex.lock();
 	//std::unique_lock<std::mutex> lock(sif_queue_mutex);
 	sif_queueing_packet.push(p_packet);
@@ -258,9 +247,15 @@ static bool add_cif_queue(const struct pcap_pkthdr* packet_header, const u_char*
 	std::cout << "add cif queue!" << std::endl;
 	u_int packet_size= packet_header->len;
 	MyPacket * p_packet = new MyPacket;
-	//void* packet_content = packet;
-	memcpy((char*)packet, p_packet->packet_buf, sizeof(u_char) * packet_size + 1); 
-	memcpy((struct pcap_pkthdr*)packet_header,&(p_packet->pkthdr),sizeof(struct pcap_pkthdr));
+
+	//memcpy((char*)packet, p_packet->packet_buf, sizeof(u_char) * packet_size + 1); 
+	//memcpy((struct pcap_pkthdr*)packet_header,&(p_packet->pkthdr),sizeof(struct pcap_pkthdr));
+	for (int i = 0; i < sizeof(u_char) * packet_size + 1; ++i)
+		p_packet->packet_buf[i] = packet[i];
+
+	p_packet->pkthdr.ts = packet_header->ts;
+	p_packet->pkthdr.caplen = packet_header->caplen;
+	p_packet->pkthdr.len = packet_header->len;
 	//std::unique_lock<std::mutex> lock(cif_queue_mutex);
 	cif_queue_mutex.lock();
 	cif_queueing_packet.push(p_packet);
@@ -291,13 +286,62 @@ static MyPacket* pop_cif_queue(){
 	return return_value;
 }
 
+static bool is_client_ip(std::string src_ip){
+	if (src_ip.compare(client_ip) == 0) {
+		return true;
+	}
+}
+
 static bool is_server_ip(std::string src_ip){
+	if (src_ip.compare(server_ip) == 0) {
+		return true;
+	}
+	/*
 	for (auto ip : server_ip_vector){
 		if (ip.compare(src_ip) == 0){
 			return true;
 		}
-	}
+	}*/
 	return false;	
+}
+
+static void* send_sif(void* ptr){
+	char *server_dev;
+	char errbuf[PCAP_ERRBUF_SIZE];
+	//server_dev = server_interface.c_str();
+	//server_pcap_t = pcap_open_live(server_interface.c_str(), BUFSIZ, 0, -1,errbuf ); 
+	//while (server_pcap_t == NULL) {
+	//	continue;
+		//std::cerr<<"Unable to open the client adapter. \n"<<std::endl;
+		//return NULL;
+	//}
+	while(true) {
+		// Get a packet to be sent
+		MyPacket * packet_tbs;
+		while(true) {	
+			sif_queue_mutex.lock();
+			//std::unique_lock<std::mutex> lock(sif_queue_mutex);
+			if (sif_queueing_packet.size() != 0){
+				sif_queue_mutex.unlock();
+				packet_tbs = pop_sif_queue();
+				std::cout << "a packet to be sent on sif" <<std::endl;
+				//std::unique_lock<std::mutex> unlock(sif_queue_mutex);
+				break;
+			}
+			sif_queue_mutex.unlock();
+			//std::unique_lock<std::mutex> unlock(sif_queue_mutex);
+		}
+		// Send the packet when client capacity allows
+		
+		//while(!cif_has_room_for(packet_tbs)) {
+		//	continue;
+		//}
+		//sif_send_packet(&(packet_tbs->pkthdr),packet_tbs->packet_buf);
+		sif_send_ip_packet(&(packet_tbs->pkthdr),packet_tbs->packet_buf);
+		std::cout << "sif sent a packet" << std::endl;
+		delete packet_tbs;
+	}
+	return NULL;
 }
 
 static void* send_cif(void* ptr){
@@ -305,12 +349,12 @@ static void* send_cif(void* ptr){
 	char *client_dev;
 	char errbuf[PCAP_ERRBUF_SIZE];
 	//client_dev = client_interface.c_str();
-	client_pcap_t = pcap_open_live(client_interface.c_str(), BUFSIZ, 0, -1, errbuf);
+	//client_pcap_t = pcap_open_live(client_interface.c_str(), BUFSIZ, 0, -1, errbuf);
 	
-	while(client_pcap_t == NULL) {
-		std::cerr<<"Unable to open the client adapter. \n"<<std::endl;
+	//while(client_pcap_t == NULL) {
+	//	std::cerr<<"Unable to open the client adapter. \n"<<std::endl;
 		//return NULL;
-	}
+	//}
 	while(true) {
 		MyPacket * packet_tbs;
 		// Get a packet to be sent
@@ -341,7 +385,9 @@ static void* send_cif(void* ptr){
 		}
 
 		std::cout << "going to send a packet on CIF!" << std::endl;
-		cif_send_packet(&(packet_tbs->pkthdr),packet_tbs->packet_buf);
+		//cif_send_packet(&(packet_tbs->pkthdr),packet_tbs->packet_buf);
+		cif_send_ip_packet(&(packet_tbs->pkthdr),packet_tbs->packet_buf);
+		
 		std::cout << "sent a packet on CIF!" << std::endl;
 		delete packet_tbs;
 	}
@@ -394,7 +440,7 @@ static void clean_up(){
 	//server_pcap_t->close();
 	//client_pcap_t->close();
 }
-static void send_ip_packet(const struct pcap_pkthdr* pkthdr, const u_char * packet_contect, std::string dst_ip_str){
+static void send_ip_packet(struct pcap_pkthdr* pkthdr, u_char * packet_content, std::string dst_ip_str, std::string if_str){
 	//MyEthHdr* ethernet=(MyEthHdr *)packet_content;
 	MyIpHdr* ip_packet =(MyIpHdr*)(packet_content + sizeof(MyEthHdr));
 
@@ -424,14 +470,29 @@ static void send_ip_packet(const struct pcap_pkthdr* pkthdr, const u_char * pack
 	}
 
 	// Bind socket to interface index.
+	struct ifreq interface;
+    strncpy(interface.ifr_ifrn.ifrn_name, if_str.c_str(), sizeof(if_str.c_str()+1));
+    snprintf (interface.ifr_name, sizeof(interface.ifr_name), "%s", if_str.c_str());
+    std::cout << interface.ifr_name << std::endl;
 	if (setsockopt (sock_raw, SOL_SOCKET, SO_BINDTODEVICE, &interface, sizeof (interface)) < 0) {
+		std::cerr << "setsockopt() failed to bind to interface " << std::endl;
+		exit (EXIT_FAILURE);
+	}
+	int sndsize = 65536;
+	if (setsockopt (sock_raw, SOL_SOCKET, SO_SNDBUF, &sndsize, sizeof (int)) < 0) {
+		std::cerr << "setsockopt() failed to bind to interface " << std::endl;
+		exit (EXIT_FAILURE);
+	}
+	if (setsockopt (sock_raw, SOL_SOCKET, SO_RCVBUF, &sndsize, sizeof (int)) < 0) {
 		std::cerr << "setsockopt() failed to bind to interface " << std::endl;
 		exit (EXIT_FAILURE);
 	}
 
 	// Send packet.
-	if (sendto (sock_raw, (char *)ip_packet, IP4_HDRLEN + TCP_HDRLEN, 0, (struct sockaddr *) &sin, sizeof (struct sockaddr)) < 0)  {
-		std::cerr << "sendto() failed " << std::endl;
+	if (sendto (sock_raw, (char *)ip_packet, htons(ip_packet->tot_len), 0, (struct sockaddr *) &sin, sizeof (struct sockaddr)) < 0)  {
+		std::cerr << "sendto() failed " << ip_packet->tot_len << std::endl;
+
+		perror ("sendto() failed ");
 		exit (EXIT_FAILURE);
 	}
 
@@ -453,12 +514,12 @@ static void send_ip_packet(const struct pcap_pkthdr* pkthdr, const u_char * pack
 	*/
 }
 
-static void cif_send_ip_packet(const struct pcap_pkthdr* pkthdr, const u_char * packet_contect) {
-	send_ip_packet(pkthdr, packet_contect, client_ip);
+static void cif_send_ip_packet(struct pcap_pkthdr* pkthdr, u_char * packet_contect) {
+	send_ip_packet(pkthdr, packet_contect, client_ip, client_interface);
 }
 
-static void sif_send_ip_packet(const struct pcap_pkthdr* pkthdr, const u_char * packet_contect) {
-	send_ip_packet(pkthdr, packet_contect, server_ip);
+static void sif_send_ip_packet(struct pcap_pkthdr* pkthdr, u_char * packet_contect) {
+	send_ip_packet(pkthdr, packet_contect, server_ip, server_interface);
 }
 
 static void sif_send_packet(const struct pcap_pkthdr* pkthdr, const u_char * packet) {
@@ -482,35 +543,73 @@ static void cif_send_packet(const struct pcap_pkthdr* pkthdr, const u_char * pac
 	//printf("send packet over client interface! \n",fp);
 }
 
+static bool is_end() {
+	if (realtime_flow_state == FlowState::Rst)
+		return true;
+	return false;
+}
 
-//return true if the flow ends
-static bool update_state(MyIpHdr* ip_header, MyTcpHdr* tcp_header, double cur_time){
+static bool is_from_server(u_int src_ip, u_int dst_ip) {
+	if((is_server_ip(nip2a(src_ip)) && is_client_ip(nip2a(dst_ip)))) {
+		return true;
+	}
+	return false;
+}
+static bool is_from_client(u_int src_ip, u_int dst_ip) {
+	if((is_client_ip(nip2a(src_ip)) && is_server_ip(nip2a(dst_ip)))) {
+		return true;
+	}
+	return false;
+}
+
+static bool belong_to_flow(u_int src_ip, u_int dst_ip) {
+	if(is_from_server(src_ip, dst_ip) || is_from_client(src_ip, dst_ip)) {
+		return true;
+	}
+	return false;
+}
+
+//return true if the packet should be forwarded
+static bool update_state(MyIpHdr* ip_header, MyTcpHdr* tcp_header, double cur_time) {
+	if (belong_to_flow(ip_header->sourceIP, ip_header->destIP) == false)
+		return false;
+
 	// whenever a RST is received, reset
 	if (tcp_header->rst != 0) {
 		std::cout << "A RST packet is received!" <<std::endl;
-		realtime_flow_state = FlowState::Waiting;
+		realtime_flow_state = FlowState::Rst;
 		return true;
 	}
 
 	switch (realtime_flow_state) {
 	case FlowState::Waiting:
-		if (is_server_ip(nip2a(ip_header->destIP)) && tcp_header->syn != 0) {
+		if (is_from_client(ip_header->sourceIP, ip_header->destIP)) {
+		//if (is_server_ip(nip2a(ip_header->destIP)) && is_client_ip(nip2a(ip_header->sourceIP)) && tcp_header->syn != 0) {
 			std::cout << "A SYN packet is received!" <<std::endl;
 			realtime_flow_state = FlowState::Syn;
+			return true;
 		} else {
 			std::cerr << "unexpected packet at state Waiting" << std::endl;
+			return false;
 		}
 		break;
 	case FlowState::Syn:
-		if(is_server_ip(nip2a(ip_header->sourceIP))) {
+		if (is_from_client(ip_header->sourceIP, ip_header->destIP) && tcp_header->syn != 0) {
+		//if (is_server_ip(nip2a(ip_header->destIP)) && is_client_ip(nip2a(ip_header->sourceIP)) && tcp_header->syn != 0) {
+			std::cout << "A retransmitted SYN packet is received!" <<std::endl;
+			realtime_flow_state = FlowState::Syn;
+			return true;
+		} else if(is_from_server(ip_header->sourceIP, ip_header->destIP)) {
 			if (tcp_header->syn != 0 && tcp_header->ack != 0) {
 				realtime_flow_state = FlowState::Flow;
 				real_time_flow_start_time = cur_time;
 				struct timeval sys_tv;
 				gettimeofday(&sys_tv, NULL);
 				real_time_flow_start_sys_time = tv2ts(sys_tv);
+				return true;
 			} else if (tcp_header->syn != 0) {
 				realtime_flow_state = FlowState::SynAck;
+				return true;
 			} else {
 				std::cerr << "unexpected server packet at state Syn" << std::endl;
 			}
@@ -519,7 +618,7 @@ static bool update_state(MyIpHdr* ip_header, MyTcpHdr* tcp_header, double cur_ti
 		}
 		break;
 	case FlowState::SynAck:
-		if(is_server_ip(nip2a(ip_header->destIP))) {
+		if(is_from_client(ip_header->sourceIP, ip_header->destIP)) {
 			realtime_flow_state = FlowState::Flow;
 		} else {
 			std::cerr << "unexpected State SynAck";
@@ -533,10 +632,11 @@ static bool update_state(MyIpHdr* ip_header, MyTcpHdr* tcp_header, double cur_ti
 		if (tcp_header->fin != 0) {
 			realtime_flow_state = FlowState::Fin;
 		}
+		return true;
 		break;
 	case FlowState::Fin:
 		if (tcp_header->fin != 0 && tcp_header->ack != 0) {
-			realtime_flow_state = FlowState::Waiting;
+			realtime_flow_state = FlowState::Rst;
 			return true;
 		}
 	}

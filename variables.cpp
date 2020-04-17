@@ -12,6 +12,7 @@ std::string client_interface;
 /// Parameter: server ip
 std::vector< std::string> server_ip_vector;
 std::string client_ip;
+std::string server_ip;
 
 /// Parameter: path of the input traces
 std::string folder;

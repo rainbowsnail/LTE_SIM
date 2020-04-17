@@ -28,14 +28,20 @@ static int header_len_col = -1;
 static int rtt_col = -1;
 
 struct simple_packet{
-std::string ip;
+//std::string ip;
 std::string seq;
 std::string tsval;
 std::string tsecr;
 };
+
 inline bool operator<(const simple_packet& lhs, const simple_packet& rhs) {
-	return lhs.tsval < rhs.tsval;
+	if (lhs.seq.compare(rhs.seq)!=0) return lhs.seq < rhs.seq;
+	if (lhs.tsval.compare(rhs.tsval)!=0) {
+		return lhs.tsval < rhs.tsval;
+	}
+	return lhs.tsecr < rhs.tsecr;
 }
+
 static std::set<struct simple_packet> client_packet_set;
 static void initiate();
 static bool is_server_ip(std::string cur_ip);
@@ -69,6 +75,7 @@ void extract_trace(std::string server_name, std::string client_name) {
     read_csv(server_name, &server_packet_vector);
     read_csv(client_name, &client_packet_vector);
     set_column_number(&(server_packet_vector[0]));
+    build_client_map();
 	extract_goodput();
 	extract_loss();
 	extract_min_rtt();
@@ -88,12 +95,14 @@ static void extract_min_rtt() {
 		}
 		double cur_packet_ts = std::stod(server_packet_vector[i][ts_col]);
 		int index_left = (cur_packet_ts - server_flow_start_time)/GRANULARITY;
-		int index_right = RTT_WINDOW/GRANULARITY;
+		int index_right = index_left + RTT_WINDOW/GRANULARITY;
 		if (index_right > MAX_FLOW_DURATION/GRANULARITY) {
 			index_right = MAX_FLOW_DURATION/GRANULARITY;
 		}
-		for (int index = index_left; index < index_right; ++ index) {
-			double tmp_rtt = std::stod(server_packet_vector[i][rtt_col]);
+		if (server_packet_vector[i][rtt_col].size() == 0)
+			continue;
+		double tmp_rtt = std::stod(server_packet_vector[i][rtt_col]);
+		for (int index = index_left; index < index_right; ++index) {
 			if(tmp_rtt < server_rtt_vector[index]) {
 				server_rtt_vector[index] = tmp_rtt;
 			}
@@ -129,10 +138,10 @@ static void extract_min_rtt() {
 static void extract_loss() {
 	for (int i = 1; i < server_packet_vector.size();i++) {
 		//std::cout << i <<std::endl;
-		double cur_packet_ts = std::stod(client_packet_vector[i][ts_col]);
+		double cur_packet_ts = std::stod(server_packet_vector[i][ts_col]);
 		
 		// Set flow starting time
-		if (server_flow_start_time == 0 && client_packet_vector[i][syn_col].compare("1") == 0) {
+		if (server_flow_start_time == 0 && server_packet_vector[i][syn_col].compare("1") == 0) {
 			server_flow_start_time = cur_packet_ts;
 		}
 
@@ -142,18 +151,25 @@ static void extract_loss() {
 		}
 
 		// If it exceeds the Max flow duration, discard remaining packets
-		if (cur_packet_ts - server_flow_start_time > MAX_FLOW_DURATION)
+		if (cur_packet_ts - server_flow_start_time >= MAX_FLOW_DURATION)
 			break;
+
+		// If dst IP is server IP, skip this ACK packet
+		if (is_server_ip(server_packet_vector[i][ip_dst_col])) {
+			continue;
+		}
 
 		// Index in client_loss_vector
 		int index = (cur_packet_ts - server_flow_start_time)/GRANULARITY;
-		server_tot_packet_vector[index]++;
+		server_tot_packet_vector[index] += 1;
+		//std::cout << "before quick in client vector" <<std::endl;
 		if (!quick_in_client_vector(&(server_packet_vector[i]))) {
-			server_loss_packet_vector[index]++;
+			server_loss_packet_vector[index] += 1;
 		}
+		//std::cout << "after quick in client vector" <<std::endl;
 	}
 
-	for (int i = 0; i < server_loss_packet_vector.size(); ++i) {
+	for (int i = 0; i < server_loss_vector.size(); ++i) {
 		if(server_tot_packet_vector[i]!=0){
 			server_loss_vector[i] = float(server_loss_packet_vector[i])/float(server_tot_packet_vector[i]);
 			//std::cout << server_loss_vector[i] << std::endl;
@@ -177,7 +193,6 @@ static void initiate() {
 		server_loss_packet_vector.push_back(0);
 		server_tot_packet_vector.push_back(0);
 	}
-	build_client_map();
 	server_flow_start_time = 0;
 	client_flow_start_time = 0;
 }
@@ -214,7 +229,7 @@ static void extract_goodput() {
 		if (is_server_ip(client_packet_vector[i][ip_dst_col])) {
 			continue;
 		}
-		if ((cur_packet_ts - client_flow_start_time)>MAX_FLOW_DURATION)
+		if ((cur_packet_ts - client_flow_start_time) > MAX_FLOW_DURATION)
 			break;
 		// Index in client_goodput_vector
 		int index = (cur_packet_ts - client_flow_start_time)/GRANULARITY;
@@ -283,39 +298,46 @@ static void set_column_number(std::vector<std::string> *fields) {
  		exit(0);
 	}
 }
+
 static void build_client_map(){
-	for (auto packet : client_packet_vector) {
+	//std::cout << client_packet_vector.size() << std::endl;
+	for (int i = 0; i < client_packet_vector.size(); ++i) {
+		//auto packet = client_packet_vector[i];
+		if (is_server_ip(client_packet_vector[i][ip_dst_col]))
+			continue;
 		struct simple_packet new_packet;
-		new_packet.ip = packet[ip_src_col];
-		new_packet.seq = packet[seq_col];//.compare(packet[seq_col]) == 0
-		new_packet.tsval = packet[tsval_col];//.compare(packet[tsval_col]) == 0
-		new_packet.tsecr = packet[tsecr_col];
+		//new_packet.ip = packet[ip_dst_col];
+		new_packet.seq = client_packet_vector[i][seq_col];//.compare(packet[seq_col]) == 0
+		new_packet.tsval = client_packet_vector[i][tsval_col];//.compare(packet[tsval_col]) == 0
+		new_packet.tsecr = client_packet_vector[i][tsecr_col];
 		client_packet_set.insert(new_packet);
 	}
+	std::cout << "client map size = " << client_packet_set.size() << std::endl;
 }
 
 static bool quick_in_client_vector(const std::vector< std::string> *server_packet){
 	struct simple_packet key;
-	key.ip = (*server_packet)[ip_src_col];
+	//key.ip = (*server_packet)[ip_dst_col];
 	key.seq = (*server_packet)[seq_col];
 	key.tsval = (*server_packet)[tsval_col];
 	key.tsecr = (*server_packet)[tsecr_col];
 	if (client_packet_set.find(key) == client_packet_set.end()) {
+		//std::cout << (*server_packet)[seq_col] << "; " <<(*server_packet)[tsval_col] << std::endl;
 		return false;
 	}
-	std::cout << "find a packet" << std::endl;
+	//std::cout << "find a packet" << std::endl;
 	return true;
 }
 /// Check if a packet is in client vector
 /// Return true when it is in client vector 
 static bool in_client_vector(const std::vector< std::string> *server_packet){
 	for (auto packet : client_packet_vector) {
-		if (is_server_ip(packet[ip_src_col])
-			&& (*server_packet)[seq_col].compare(packet[seq_col]) == 0
+		if ((*server_packet)[seq_col].compare(packet[seq_col]) == 0
 			&& (*server_packet)[tsval_col].compare(packet[tsval_col]) == 0
 			&& (*server_packet)[tsecr_col].compare(packet[tsecr_col]) == 0)
 			return true;
 	}
+	//std::cout << (*server_packet)[seq_col] << "; " <<(*server_packet)[tsval_col] << std::endl;
 	return false;
 }
 
@@ -343,7 +365,7 @@ static void read_csv(std::string filename, std::vector<std::vector<std::string> 
 	std::string _line;
 	while (getline(file, _line))
 	{
-		//cout << "each line : " << _line << endl;
+		//std::cout << "each line : " << _line << std::endl;
 		std::stringstream stream(_line);
 		std::string _sub;
 		std::vector<std::string> subArray;
@@ -358,5 +380,6 @@ static void read_csv(std::string filename, std::vector<std::vector<std::string> 
 		//cout << endl;
 		(*p_vector).push_back(subArray);
 	}
+	std::cout << "Total line number: " << (*p_vector).size() <<std::endl;
 	//getchar();
 }
