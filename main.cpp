@@ -7,6 +7,7 @@
 #include <boost/program_options.hpp>
 using namespace std;
  
+static bool flow_is_end = false;
 static void* sniff_interface(void* ptr) {
     //bool *is_server = (bool *)ptr;
     Host *host = (Host*) ptr;
@@ -46,7 +47,8 @@ static void* sniff_interface(void* ptr) {
     u_char *pkt_data;         
     int retval;
     cout << "----------- Start sniffing packet! ------------" << std::endl;
-        while ((retval = pcap_next_ex(handler, &pkt_header, (const u_char **) &pkt_data)) >= 0)   {
+    while (!flow_is_end)   {
+        if ((retval = pcap_next_ex(handler, &pkt_header, (const u_char **) &pkt_data)) < 0) break;
         /// 
         bool is_end = false;
         if(*host == Host::Server) {
@@ -56,6 +58,7 @@ static void* sniff_interface(void* ptr) {
         }
         if (is_end) break;
     } 
+    flow_is_end = true;
     pcap_close(handler);
 }
 
@@ -84,23 +87,27 @@ static void smain() {
         server_filename_queue.push(server_name);
         client_filename_queue.push(client_name);
         extract_trace(server_name, client_name);
-        packet_handler_initiate();
+        for (int i = 0; i < repeat_times; ++i){
+            flow_is_end = false;
+            packet_handler_initiate();
 
-        pthread_t* client_thread = new pthread_t;
-        pthread_t* server_thread = new pthread_t;
+            pthread_t* client_thread = new pthread_t;
+            pthread_t* server_thread = new pthread_t;
 
-        // create thread
-        pthread_create(server_thread, NULL, &sniff_interface, (void *) &server);
-        pthread_create(client_thread, NULL, &sniff_interface, (void *) &client);
+            // create thread
+            pthread_create(server_thread, NULL, &sniff_interface, (void *) &server);
+            pthread_create(client_thread, NULL, &sniff_interface, (void *) &client);
+            
+            //pthread_create(client_thread, NULL, &sniff_interface, (void *) client_is_server);
+            //pthread_create(server_thread, NULL, &sniff_interface, (void *) server_is_server);
+            
+            /// wait for threads to terminate.
+            pthread_join(*server_thread, NULL);
+            pthread_join(*client_thread, NULL);
+            delete server_thread;
+            delete client_thread;
+        }
         
-        //pthread_create(client_thread, NULL, &sniff_interface, (void *) client_is_server);
-        //pthread_create(server_thread, NULL, &sniff_interface, (void *) server_is_server);
-        
-        /// wait for threads to terminate.
-        pthread_join(*server_thread, NULL);
-        pthread_join(*client_thread, NULL);
-        delete server_thread;
-        delete client_thread;
     }
 }
 
@@ -139,7 +146,7 @@ static void parse_option(int argc, char **argv) {
         ("trace", po::value<std::string>(),
             "Trace folder. "
             "Defaultly set to ./trace/")
-        ("no", po::value<int>(),
+        ("no", po::value<std::string>(),
             "NO. of trace pair.")
         ("server", po::value<std::string>(),
             "Server CSV (from pcap). "
@@ -159,6 +166,9 @@ static void parse_option(int argc, char **argv) {
             "Server IP (e.g. 106.58.5.123).\n")
         ("tcip", po::value<std::string>(),
             "Client IP (e.g. 106.58.5.124).\n")
+        ("repeat", po::value<int>()->default_value(1),
+            "repeating times for each trace."
+            "Default to 1.\n")
         ("lte", po::value<std::string>(),
             "Mobileinsight XML file.\n");
     /// Build the option map and parse options.
@@ -176,6 +186,10 @@ static void parse_option(int argc, char **argv) {
         std::cout << all_opts << std::endl;
         exit(0);
     }
+
+    if (vm.count("repeat")) {
+        repeat_times = vm["repeat"].as<int>();
+    } 
 
     if (vm.count("sif")) {
         server_interface = vm["sif"].as<std::string>();

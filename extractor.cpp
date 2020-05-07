@@ -72,12 +72,16 @@ std::vector<double> server_rtt_vector;//(DURATION/GRANULARITY,MAX_FLOAT_NUM);
 void extract_trace(std::string server_name, std::string client_name) {	
 	std::cout << "----------- trace extract start! ------------" << std::endl;
     initiate();
+    std::cout << "----------- trace extract init! ------------" << std::endl;
     read_csv(server_name, &server_packet_vector);
     read_csv(client_name, &client_packet_vector);
     set_column_number(&(server_packet_vector[0]));
+    std::cout << "----------- trace extract csv! ------------" << std::endl;
     build_client_map();
 	extract_goodput();
+	std::cout << "----------- trace extract goodput! ------------" << std::endl;
 	extract_loss();
+	std::cout << "----------- trace extract loss! ------------" << std::endl;
 	extract_min_rtt();
 	clean_up();
 	std::cout << "----------- trace extract complete! ------------" << std::endl;
@@ -108,7 +112,7 @@ static void extract_min_rtt() {
 			}
 		}
 	}
-	std::cout << "extract min RTT!" << std::endl;
+	//std::cout << "extract min RTT!" << std::endl;
 	/*
 	for (int i = 1; i < server_packet_vector.size(); i++) {
 		float cur_packet_ts = std::stof(server_packet_vector[i][ts_col]);
@@ -177,7 +181,7 @@ static void extract_loss() {
 	}
 	server_loss_packet_vector.clear();
 	server_tot_packet_vector.clear();
-	std::cout << "extract loss!" << std::endl;
+	//std::cout << "extract loss!" << std::endl;
 }
 
 static void initiate() {
@@ -242,8 +246,8 @@ static void extract_goodput() {
 		// Add this packet size to goodput vector
 		client_goodput_vector[index] += packet_size;
 	}
-	std::cout << "extract goodput!" << std::endl;
-	std::cout << client_goodput_vector.size()<<std::endl;
+	//std::cout << "extract goodput!" << std::endl;
+	//std::cout << client_goodput_vector.size()<<std::endl;
 	//for (auto tmp : client_goodput_vector) {
 	//	std::cout << tmp << std::endl;
 	//}
@@ -300,6 +304,7 @@ static void set_column_number(std::vector<std::string> *fields) {
 }
 
 static void build_client_map(){
+	client_packet_set.clear();
 	//std::cout << client_packet_vector.size() << std::endl;
 	for (int i = 0; i < client_packet_vector.size(); ++i) {
 		//auto packet = client_packet_vector[i];
@@ -312,7 +317,7 @@ static void build_client_map(){
 		new_packet.tsecr = client_packet_vector[i][tsecr_col];
 		client_packet_set.insert(new_packet);
 	}
-	std::cout << "client map size = " << client_packet_set.size() << std::endl;
+	//std::cout << "client map size = " << client_packet_set.size() << std::endl;
 }
 
 static bool quick_in_client_vector(const std::vector< std::string> *server_packet){
@@ -355,6 +360,7 @@ static bool is_server_ip(std::string cur_ip){
 /// Read a packet csv file and fill in the vector
 /// outter means a packet, insider means a field
 static void read_csv(std::string filename, std::vector<std::vector<std::string> >* p_vector){
+	std::cout<<filename<<std::endl;
 	auto file = std::ifstream(filename.c_str());
     if (file.fail()) {
         throw ArgumentError(
@@ -380,6 +386,6 @@ static void read_csv(std::string filename, std::vector<std::vector<std::string> 
 		//cout << endl;
 		(*p_vector).push_back(subArray);
 	}
-	std::cout << "Total line number: " << (*p_vector).size() <<std::endl;
+	//std::cout << "Total line number: " << (*p_vector).size() <<std::endl;
 	//getchar();
 }

@@ -14,11 +14,14 @@ extern std::queue< std::string> client_filename_queue;
 extern std::string server_interface;
 extern std::string client_interface;
 
-
-
+/// Possible server ip in csv traces
 extern std::vector< std::string> server_ip_vector;
+
+/// Runtime server/client ip
 extern std::string server_ip;
 extern std::string client_ip;
 
+/// Repeat times for each trace
+extern int repeat_times;
 
 #endif

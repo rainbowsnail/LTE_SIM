@@ -21,5 +21,5 @@ std::string folder;
 std::queue< std::string> server_filename_queue;
 std::queue< std::string> client_filename_queue;
 
-//std::vector< std::unique_ptr<std::istream,
-//             std::function<void(std::istream*)>> > g_inputs;
+/// Repeat times for each trace
+int repeat_times;
