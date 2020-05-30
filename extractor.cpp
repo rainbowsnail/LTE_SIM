@@ -61,13 +61,14 @@ static std::vector<std::vector<std::string> >server_packet_vector;
 static std::vector<std::vector<std::string> >client_packet_vector;
 
 /// The vector storing loss rate for every 10 ms
-std::vector<float> server_loss_vector;//(DURATION/GRANULARITY,0);
-static std::vector<int> server_loss_packet_vector;//(DURATION/GRANULARITY,0);
-static std::vector<int> server_tot_packet_vector;//(DURATION/GRANULARITY,0);
+std::vector<float> server_loss_vector;//(DURATION*GRANU_SCALE,0);
+static std::vector<int> server_loss_packet_vector;//(DURATION*GRANU_SCALE,0);
+static std::vector<int> server_tot_packet_vector;//(DURATION*GRANU_SCALE,0);
 /// The vector storing client goodput for every 10 ms
-std::vector<int> client_goodput_vector;//(DURATION/GRANULARITY,0);
+std::vector<int> client_goodput_vector;//(DURATION*GRANU_SCALE,0);
 /// The vector storing server perceived rtt (ms)
-std::vector<double> server_rtt_vector;//(DURATION/GRANULARITY,MAX_FLOAT_NUM);
+std::vector<double> server_rtt_vector;//(DURATION*GRANU_SCALE,MAX_FLOAT_NUM);
+std::vector<int> server_rtt_slot_vector;
 
 void extract_trace(std::string server_name, std::string client_name) {	
 	std::cout << "----------- trace extract start! ------------" << std::endl;
@@ -93,23 +94,43 @@ static void extract_min_rtt() {
 		std::cerr << "server_flow_start_time = zero!" << std::endl;
 		return;
 	}
+	bool _start = false;
 	for (int i = 1; i < server_packet_vector.size(); ++i) {
+		// Skip if packet is not an ACK
 		if (!is_server_ip(server_packet_vector[i][ip_dst_col])) {
 			continue;
 		}
 		double cur_packet_ts = std::stod(server_packet_vector[i][ts_col]);
-		int index_left = (cur_packet_ts - server_flow_start_time)/GRANULARITY;
-		int index_right = index_left + RTT_WINDOW/GRANULARITY;
-		if (index_right > MAX_FLOW_DURATION/GRANULARITY) {
-			index_right = MAX_FLOW_DURATION/GRANULARITY;
-		}
+		int index_left = (cur_packet_ts - server_flow_start_time)*GRANU_SCALE;
+		int index_right = index_left + RTT_WINDOW * GRANU_SCALE;
+		if (index_right > MAX_FLOW_DURATION * GRANU_SCALE) {
+			index_right = MAX_FLOW_DURATION * GRANU_SCALE;
+		} 
+		
 		if (server_packet_vector[i][rtt_col].size() == 0)
 			continue;
+		if ( !_start ){
+			index_left = 0;
+			_start = true;
+		}
 		double tmp_rtt = std::stod(server_packet_vector[i][rtt_col]);
 		for (int index = index_left; index < index_right; ++index) {
+			//std::cout << index << "	tmp_rtt:" <<tmp_rtt<< std::endl;
+
 			if(tmp_rtt < server_rtt_vector[index]) {
 				server_rtt_vector[index] = tmp_rtt;
+				//std::cout << index << "	reset:" <<server_rtt_vector[index]<< std::endl;
 			}
+		}
+		int index_slot = (cur_packet_ts - server_flow_start_time) * MS_IN_S;
+		server_rtt_slot_vector[index_slot]++;
+	}
+	double pre_rtt = MAX_FLOAT_NUM;
+	for(int i = 0; i < MAX_FLOW_DURATION * GRANU_SCALE; ++i){
+		if(server_rtt_vector[i] == MAX_FLOAT_NUM){
+			server_rtt_vector[i] =  pre_rtt;
+		}else{
+			pre_rtt = server_rtt_vector[i];
 		}
 	}
 	//std::cout << "extract min RTT!" << std::endl;
@@ -164,7 +185,7 @@ static void extract_loss() {
 		}
 
 		// Index in client_loss_vector
-		int index = (cur_packet_ts - server_flow_start_time)/GRANULARITY;
+		int index = (cur_packet_ts - server_flow_start_time)*GRANU_SCALE;
 		server_tot_packet_vector[index] += 1;
 		//std::cout << "before quick in client vector" <<std::endl;
 		if (!quick_in_client_vector(&(server_packet_vector[i]))) {
@@ -190,12 +211,16 @@ static void initiate() {
 	server_loss_vector.clear();
 	client_goodput_vector.clear();
 	server_rtt_vector.clear();
-	for (int i = 0; i < DURATION/GRANULARITY; ++i){
+	server_rtt_slot_vector.clear();
+	for (int i = 0; i < DURATION*GRANU_SCALE; ++i){
 		client_goodput_vector.push_back(0);
-		server_rtt_vector.push_back(0);
+		server_rtt_vector.push_back(MAX_FLOAT_NUM);
 		server_loss_vector.push_back(0);
 		server_loss_packet_vector.push_back(0);
 		server_tot_packet_vector.push_back(0);
+	}
+	for (int i = 0; i < DURATION * MS_IN_S; ++i){
+		server_rtt_slot_vector.push_back(0);
 	}
 	server_flow_start_time = 0;
 	client_flow_start_time = 0;
@@ -210,7 +235,7 @@ static void clean_up(){
 /// Calculate goodput from client packet vector
 static void extract_goodput() {
 	//std::cout << client_goodput_vector.size()<<std::endl;
-	//for (int i = 0; i < DURATION/GRANULARITY; ++i){
+	//for (int i = 0; i < DURATION*GRANU_SCALE; ++i){
 	//	client_goodput_vector.push_back(0);
 	//}
 	//std::cout << client_goodput_vector.size()<<std::endl;
@@ -236,7 +261,7 @@ static void extract_goodput() {
 		if ((cur_packet_ts - client_flow_start_time) > MAX_FLOW_DURATION)
 			break;
 		// Index in client_goodput_vector
-		int index = (cur_packet_ts - client_flow_start_time)/GRANULARITY;
+		int index = (cur_packet_ts - client_flow_start_time)*GRANU_SCALE;
 		//std::cout << index <<std::endl;
 		// Packet size = TCP header + TCP payload + IP header
 		int packet_size = std::stoi(client_packet_vector[i][header_len_col])

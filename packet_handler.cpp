@@ -7,6 +7,8 @@
 #include <time.h>
 #include <cstdlib>
 #include <iostream>
+#include <fstream>
+#include <sstream>
 #include <mutex>
 #include <netinet/if_ether.h>
 #include <sys/socket.h>
@@ -29,7 +31,7 @@ std::queue<MyPacket*> cif_queueing_packet;
 std::mutex sif_queue_mutex;
 std::mutex cif_queue_mutex;
 std::mutex flow_state_mutex;
-
+std::ofstream queue_file;
 
 static double real_time_flow_start_time;
 static double real_time_flow_start_sys_time;
@@ -43,7 +45,8 @@ static pthread_t* client_send_thread = NULL;
 static pthread_t* server_send_thread = NULL;
 static int cif_sock = 0;
 static int sif_sock = 0;
-
+static u_int fin_ack_seq = 0;
+static u_int fin_seq = 0;
 static void* send_sif(void* ptr);
 static void* send_cif(void* ptr);
 static bool cif_has_room_for(MyPacket * packet_tbs);
@@ -94,6 +97,7 @@ inline static double tv_diff(struct timeval stt, struct timeval end) {
 }
 
 static bool should_drop(float loss_rate){
+	return false;
 	srand((unsigned)time(NULL));
 	if(rand() < RAND_MAX * loss_rate)
 		return true;
@@ -102,11 +106,41 @@ static bool should_drop(float loss_rate){
 
 static float get_loss_rate(MyPacket * packet_tbs) {
 	double cur_packet_ts = tv2ts(packet_tbs->pkthdr.ts);
-	int index = (cur_packet_ts - real_time_flow_start_time)/GRANULARITY;
+	int index = (cur_packet_ts - real_time_flow_start_time)*GRANU_SCALE;
 	return server_loss_manage_vector[index];
 }
 
 static bool is_delayed(MyPacket * packet_tbs){
+	return true;
+}
+
+static bool sif_has_rtt_slot(MyPacket * packet_tbs){
+	//return true;
+	if (!rtt_delay) return true;
+	MyTcpHdr* tcp = (MyTcpHdr*)(packet_tbs->packet_buf + sizeof(MyEthHdr) + sizeof(MyIpHdr));
+	if (tcp->syn != 0) {
+		return true;
+	}
+
+	double cur_packet_ts = tv2ts(packet_tbs->pkthdr.ts);
+	struct timeval sys_tv;
+	double cur_time; 
+	int index; 
+
+	while(true){
+		gettimeofday(&sys_tv, NULL);
+		cur_time = tv2ts(sys_tv);
+		index = (cur_time - real_time_flow_start_time) * MS_IN_S;
+		// Always forward packets when flow exceeds MAX_FLOW_DURATION
+		// To assure RST/FIN packet forwarding
+		if(cur_time - real_time_flow_start_sys_time >= MAX_FLOW_DURATION) {
+			return true;
+		}
+		if(server_rtt_slot_vector[index]){
+			//server_rtt_slot_vector[index]--;
+			return true;
+		}
+	}
 	return true;
 }
 
@@ -116,8 +150,10 @@ static bool cif_has_room_for(MyPacket * packet_tbs){
 	struct timeval sys_tv;
 	gettimeofday(&sys_tv, NULL);
 	double cur_time = tv2ts(sys_tv);
-	int index = (cur_packet_ts - real_time_flow_start_time)/GRANULARITY;
+	int index = (cur_packet_ts - real_time_flow_start_time)*GRANU_SCALE;
 	double should_delay = server_rtt_manage_vector[index];
+	//std::cout << index << "	should_delay:" <<server_rtt_manage_vector[index]<< std::endl;
+	//std::cout << should_delay << std::endl;
 	double skrew = real_time_flow_start_time - real_time_flow_start_sys_time;
 	//double has_been_delayed = cur_time + skrew - cur_packet_ts;
 	double has_been_delayed = cur_time - cur_packet_ts;
@@ -134,11 +170,13 @@ static bool cif_has_room_for(MyPacket * packet_tbs){
 		continue;
 		/// TBD: change to sleep()
 	}
-	index = (cur_time - real_time_flow_start_sys_time)/GRANULARITY;
+	index = (cur_time - real_time_flow_start_sys_time)*GRANU_SCALE;
 	while (client_goodput_manage_vector[index] < packet_size){
+		packet_size -= client_goodput_manage_vector[index];
+		client_goodput_manage_vector[index] = 0;
 		gettimeofday(&sys_tv, NULL);
 		cur_time = tv2ts(sys_tv);
-		index = (cur_time - real_time_flow_start_time)/GRANULARITY;
+		index = (cur_time - real_time_flow_start_time)*GRANU_SCALE;
 		if(cur_time - real_time_flow_start_sys_time >= MAX_FLOW_DURATION) {
 			return true;
 		}
@@ -284,6 +322,7 @@ static bool add_cif_queue(const struct pcap_pkthdr* packet_header, const u_char*
 
 	cif_queue_mutex.lock();
 	cif_queueing_packet.push(p_packet);
+	
 	cif_queue_mutex.unlock();
 	//std::unique_lock<std::mutex> unlock(cif_queue_mutex);
 	//std::cout << "add cif queue complete!" << std::endl;
@@ -307,6 +346,11 @@ static MyPacket* pop_cif_queue(){
 	return_value = cif_queueing_packet.front();
 	cif_queueing_packet.pop();
 	cif_queue_mutex.unlock();
+	//struct timeval sys_tv;
+	//gettimeofday(&sys_tv, NULL);
+	//double cur_time = tv2ts(sys_tv);
+	//queue_file << cur_time << ' ' << cif_queueing_packet.size() << std::endl;
+	
 	//std::unique_lock<std::mutex> unlock(cif_queue_mutex);
 	return return_value;
 }
@@ -421,11 +465,11 @@ static void* send_sif(void* ptr){
 		}
 		
 
-		// Send the packet when client capacity allows
+		// Send the packet when uplink SR 
 		
-		//while(!cif_has_room_for(packet_tbs)) {
-		//	continue;
-		//}
+		while(!sif_has_rtt_slot(packet_tbs)) {
+			continue;
+		}
 		//sif_send_packet(&(packet_tbs->pkthdr),packet_tbs->packet_buf);
 		//sif_send_ip_packet(&(packet_tbs->pkthdr),packet_tbs->packet_buf);
 		send_ip_packet(&(packet_tbs->pkthdr), packet_tbs->packet_buf, sock_raw, &sin);
@@ -498,12 +542,16 @@ static void* send_cif(void* ptr){
 			if (cif_queueing_packet.size() != 0){
 				cif_queue_mutex.unlock();
 				packet_tbs = pop_cif_queue();
-				
+				//queue_file << ;
 				//std::unique_lock<std::mutex> unlock(cif_queue_mutex);
 				//std::cout << "get a packet to be send on CIF!" << std::endl;
 				break;
 			} else if (is_end()){
 				cif_queue_mutex.unlock();
+				//for (int i = 0; i < DURATION * GRANU_SCALE; ++i){
+				//	std::cout << client_goodput_manage_vector[i] << std::endl;
+				//}
+				//std::cout << "what happened!?!?" << std::endl;
 				//close(sock_raw);
 				return NULL;
 			}
@@ -531,6 +579,10 @@ static void* send_cif(void* ptr){
 		delete packet_tbs;
 		if (is_end()){
 			//close(sock_raw);
+			//for (int i = 0; i < DURATION * GRANU_SCALE; ++i){
+			//	std::cout << client_goodput_manage_vector[i] << std::endl;
+			//}
+			//std::cout << "what happened!?!?" << std::endl;
 			break;
 
 		}
@@ -545,13 +597,14 @@ void packet_handler_initiate(){
 		delete server_send_thread;
 	}
     if (client_send_thread) {
+    	std::cout << "join thread!" << std::endl;
     	pthread_join(*client_send_thread, NULL);
     	delete client_send_thread;
     }
 	client_goodput_manage_vector.clear();
 	server_loss_manage_vector.clear();
 	server_rtt_manage_vector.clear();
-	for (int i = 0; i < DURATION/GRANULARITY; ++i){
+	for (int i = 0; i < DURATION * GRANU_SCALE; ++i){
 		client_goodput_manage_vector.push_back(client_goodput_vector[i]);
 		server_loss_manage_vector.push_back(server_loss_vector[i]);
 		server_rtt_manage_vector.push_back(server_rtt_vector[i]);
@@ -564,7 +617,12 @@ void packet_handler_initiate(){
 	realtime_flow_state = FlowState::Waiting;
 	//pthread_t* client_send_thread = new pthread_t;
 	//pthread_t* server_send_thread = new pthread_t;
-
+	
+	queue_file = std::ofstream(queue_filename.c_str());
+	std::cout << queue_filename << std::endl;
+    if (queue_file.fail()) {
+        std::cerr << "Failed to open range file: " << std::endl;
+    }
 	/// Create thread
 	client_send_thread = new pthread_t;
 	server_send_thread = new pthread_t;
@@ -702,12 +760,16 @@ static void cif_send_packet(const struct pcap_pkthdr* pkthdr, const u_char * pac
 }
 
 static bool is_end() {
+	//std::cout<< "before lock" <<std::endl;
 	flow_state_mutex.lock();
+	//std::cout<< "after lock" <<std::endl;
 	if (realtime_flow_state == FlowState::Rst ) {//|| realtime_flow_state == FlowState::Fin)
 		flow_state_mutex.unlock();
+		std::cout<< "flow end" << std::endl;
 		return true;
 	}
 	flow_state_mutex.unlock();
+
 	return false;
 }
 
@@ -738,15 +800,21 @@ static bool update_state(MyIpHdr* ip_header, MyTcpHdr* tcp_header, double cur_ti
 	flow_state_mutex.lock();
 	// whenever a RST is received, reset
 	if (tcp_header->rst != 0) {
-		if ((tcp_header->sport == client_port || tcp_header->dport == client_port)) {
-			std::cout << "A RST packet is received!" <<std::endl;
-			realtime_flow_state = FlowState::Rst;
-			flow_state_mutex.unlock();
-			return true;
-		} else {
+		if (tcp_header->sport == client_port || tcp_header->dport == client_port){
+			if ((tcp_header->sport == client_port || tcp_header->dport == client_port)) {
+				std::cout << "A RST packet is received!" <<std::endl;
+				realtime_flow_state = FlowState::Rst;
+				flow_state_mutex.unlock();
+				return true;
+			} else {
+				flow_state_mutex.unlock();
+				return false;
+			}
+		}else{
 			flow_state_mutex.unlock();
 			return false;
 		}
+		
 	}
 
 	switch (realtime_flow_state) {
@@ -801,6 +869,14 @@ static bool update_state(MyIpHdr* ip_header, MyTcpHdr* tcp_header, double cur_ti
 		break;
 	case FlowState::Rst:
 		std::cerr << "unexpected State Rst";
+		if (tcp_header->sport == client_port || tcp_header->dport == client_port) {
+			if (tcp_header->ack != 0) {
+				std::cout << "An Ack Packet is received" << std::endl;
+				realtime_flow_state = FlowState::Rst;
+			}
+			flow_state_mutex.unlock();
+			return true;
+		}
 		flow_state_mutex.unlock();
 		return true;
 		//realtime_flow_state = FlowState::Waiting;
@@ -810,6 +886,11 @@ static bool update_state(MyIpHdr* ip_header, MyTcpHdr* tcp_header, double cur_ti
 			if (tcp_header->fin != 0 ) {
 				std::cout << "A Fin Packet is received" << std::endl;
 				realtime_flow_state = FlowState::Fin;
+				unsigned short bad_len = ip_header->header_len; 
+				unsigned short real_len = ((bad_len & 0x00FF) << 8) | ((bad_len & 0xFF00) >> 8);
+				fin_seq = ntohl(tcp_header->seq) + ntohs(ip_header->tot_len) - 20 - 32 + 1;
+				std::cout << "fin_seq" << fin_seq << std::endl;
+				std::cout << "tcp_header->seq" << ntohl(tcp_header->seq) << std::endl;
 				//tcp_header->rst = 1;
 				//tcp_header->fin = 0;
 				//tcp_header->ack = 0;
@@ -822,9 +903,13 @@ static bool update_state(MyIpHdr* ip_header, MyTcpHdr* tcp_header, double cur_ti
 		break;
 	case FlowState::Fin:
 		if (tcp_header->sport == client_port || tcp_header->dport == client_port) {
-			if (tcp_header->fin != 0 && tcp_header->ack != 0) {
+			std::cout << ntohl(tcp_header->ack_seq) << std::endl;
+			if (tcp_header->fin != 0 && ntohl(tcp_header->ack_seq) == fin_seq) {
 				std::cout << "A Fin/Ack Packet is received" << std::endl;
-				realtime_flow_state = FlowState::Rst;
+				realtime_flow_state = FlowState::FinAck;
+				unsigned short bad_len = ip_header->header_len; 
+				unsigned short real_len = ((bad_len & 0x00FF) << 8) | ((bad_len & 0xFF00) >> 8);
+				fin_ack_seq = ntohl(tcp_header->seq) + ntohs(ip_header->tot_len) - 20 - 32 + 1;
 				flow_state_mutex.unlock();
 				return true;
 			}
@@ -834,6 +919,15 @@ static bool update_state(MyIpHdr* ip_header, MyTcpHdr* tcp_header, double cur_ti
 		flow_state_mutex.unlock();
 		return false;
 		break;
+	
+	case FlowState::FinAck:
+		if (tcp_header->sport == client_port || tcp_header->dport == client_port) {
+			if (tcp_header->ack != 0 && ntohl(tcp_header->ack_seq) == fin_ack_seq) {
+				realtime_flow_state = FlowState::Rst;
+			}
+		}
+		flow_state_mutex.unlock();
+		return true;
 	}
 	flow_state_mutex.unlock();
 	return false;

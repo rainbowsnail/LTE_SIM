@@ -9,7 +9,8 @@
 /// Parameter: trace filename
 extern std::queue< std::string> server_filename_queue;
 extern std::queue< std::string> client_filename_queue;
-
+extern std::queue< std::string> queue_filename_queue;
+extern std::string queue_filename;
 /// Parameter: network interface 
 extern std::string server_interface;
 extern std::string client_interface;
@@ -23,5 +24,5 @@ extern std::string client_ip;
 
 /// Repeat times for each trace
 extern int repeat_times;
-
+extern bool rtt_delay;
 #endif

@@ -4,7 +4,7 @@
 /// Parameter: flow duration(s)
 #define DURATION 150;
 /// Patameter: granularity
-#define GRANULARITY 0.01; //10/1000 
+//#define GRANULARITY 0.01; //10/1000 
 /// Parameter: network interface 
 std::string server_interface;
 std::string client_interface;
@@ -20,6 +20,9 @@ std::string folder;
 //std::vector< std::string> client_filename_vector;
 std::queue< std::string> server_filename_queue;
 std::queue< std::string> client_filename_queue;
+std::queue< std::string> queue_filename_queue;
+std::string queue_filename;
 
 /// Repeat times for each trace
 int repeat_times;
+bool rtt_delay;

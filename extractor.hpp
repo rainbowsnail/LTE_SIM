@@ -7,7 +7,7 @@
 extern std::vector<float> server_loss_vector;
 extern std::vector<double> server_rtt_vector;
 extern std::vector<int> client_goodput_vector;
-
+extern std::vector<int> server_rtt_slot_vector;
 /*
 enum class CsvField {
 	TS,

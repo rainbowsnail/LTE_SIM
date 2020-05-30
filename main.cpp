@@ -4,9 +4,12 @@
 #include <iostream>
 #include <pcap.h>
 #include <pthread.h>
+#include <condition_variable>
+#include <mutex>
 #include <boost/program_options.hpp>
 using namespace std;
  
+std::condition_variable cond;
 static bool flow_is_end = false;
 static void* sniff_interface(void* ptr) {
     //bool *is_server = (bool *)ptr;
@@ -60,6 +63,7 @@ static void* sniff_interface(void* ptr) {
     } 
     flow_is_end = true;
     pcap_close(handler);
+    cond.notify_one();
 }
 
 static void smain() {
@@ -79,13 +83,18 @@ static void smain() {
     while (!server_filename_queue.empty() && !client_filename_queue.empty()) {
         auto server_name = server_filename_queue.front();
         auto client_name = client_filename_queue.front();
+        auto queue_name = queue_filename_queue.front();
+        queue_filename = queue_name;
+
         server_filename_queue.pop();
         client_filename_queue.pop();
+        queue_filename_queue.pop();
         //if (server_name == "" || client_name == ""){
         //    exit(0);
         //}
         server_filename_queue.push(server_name);
         client_filename_queue.push(client_name);
+        queue_filename_queue.push(queue_name);
         extract_trace(server_name, client_name);
         for (int i = 0; i < repeat_times; ++i){
             flow_is_end = false;
@@ -100,7 +109,13 @@ static void smain() {
             
             //pthread_create(client_thread, NULL, &sniff_interface, (void *) client_is_server);
             //pthread_create(server_thread, NULL, &sniff_interface, (void *) server_is_server);
-            
+            std::mutex mtx;
+            std::unique_lock<std::mutex> lck(mtx);
+            cond.wait(lck);
+            pthread_cancel(*server_thread);
+            pthread_cancel(*client_thread);
+            //server_thread.Destroy();
+            //client_thread.Destroy();
             /// wait for threads to terminate.
             pthread_join(*server_thread, NULL);
             pthread_join(*client_thread, NULL);
@@ -139,6 +154,7 @@ static void parse_option(int argc, char **argv) {
     po::options_description all_opts("Options");
     all_opts.add_options()
         ("help", "Produce help message.\n")
+        ("drtt", "Delay RTT.\n")
         ("auto", po::value<std::string>(),
             "Circularly use all the traces.\n")
         ("test", po::value<std::string>(),
@@ -185,6 +201,14 @@ static void parse_option(int argc, char **argv) {
                   << std::endl;
         std::cout << all_opts << std::endl;
         exit(0);
+    }
+
+    if (vm.count("drtt")) {
+        std::cout << "delay RTT func is on!" << std::endl;
+        rtt_delay = true;
+    } else {
+        std::cout << "delay RTT func is off!" << std::endl;
+        rtt_delay = false;
     }
 
     if (vm.count("repeat")) {
@@ -249,12 +273,14 @@ static void parse_option(int argc, char **argv) {
         
         server_filename_queue.push(server_name);
         client_filename_queue.push(client_name);
+        queue_filename_queue.push("./tmp/" + no + "c.csv");
         //server_filename_vector.emplace_back(std::move(server_name));
         //client_filename_vector.emplace_back(std::move(client_name));       
         
     } else if (vm.count("server") && vm.count("client")) {
         server_filename_queue.push(folder + vm["server"].as<std::string>());
-        client_filename_queue.push(folder + vm["client"].as<std::string>());        
+        client_filename_queue.push(folder + vm["client"].as<std::string>()); 
+        queue_filename_queue.push("./tmp/" + vm["client"].as<std::string>());       
     } else if (vm.count("auto")) {
         int trace_count = std::stoi(vm["auto"].as<std::string>());
         for (int i = 1; i <= trace_count; ++i){
@@ -263,6 +289,7 @@ static void parse_option(int argc, char **argv) {
             auto client_name = folder + no + "c.csv";
             server_filename_queue.push(server_name);
             client_filename_queue.push(client_name);
+            queue_filename_queue.push("./tmp/" + no + "c.csv");
         }
     } else{
         auto server_name = folder + "1s.csv";
