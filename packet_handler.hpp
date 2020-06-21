@@ -5,6 +5,8 @@
 #include <netinet/if_ether.h>
 #include <sys/types.h>
 #include <bits/endian.h>
+//#include <machine/endian.h>
+
 
 extern pcap_t *server_pcap_t, *client_pcap_t;
 enum class FlowState {

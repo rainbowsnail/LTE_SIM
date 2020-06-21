@@ -97,7 +97,7 @@ inline static double tv_diff(struct timeval stt, struct timeval end) {
 }
 
 static bool should_drop(float loss_rate){
-	return false;
+	//return false;
 	srand((unsigned)time(NULL));
 	if(rand() < RAND_MAX * loss_rate)
 		return true;
@@ -106,6 +106,8 @@ static bool should_drop(float loss_rate){
 
 static float get_loss_rate(MyPacket * packet_tbs) {
 	double cur_packet_ts = tv2ts(packet_tbs->pkthdr.ts);
+	double time_inv = cur_packet_ts - real_time_flow_start_time;
+	if (time_inv < 0 || time_inv > MAX_FLOW_DURATION) return 0;
 	int index = (cur_packet_ts - real_time_flow_start_time)*GRANU_SCALE;
 	return server_loss_manage_vector[index];
 }
@@ -512,6 +514,7 @@ static int cif_socket(){
 	cif_sock = sock_raw;
 	return cif_sock;
 }
+
 static void* send_cif(void* ptr){
 	//std::cout << "in send_cif" << std::endl;
 	char *client_dev;
@@ -561,13 +564,14 @@ static void* send_cif(void* ptr){
 		//if (cur_time - real_time_flow_start_sys_time >= MAX_FLOW_DURATION) {
 		//	break;
 		//}
-		
+		//std::cout << "get a packet from queue on CIF!" << std::endl;
 		u_int packet_size= packet_tbs->pkthdr.len;
 		float cur_loss_rate = get_loss_rate(packet_tbs);
 		if (should_drop(cur_loss_rate)) {
 			delete packet_tbs;
 			continue;
 		}
+		//std::cout << "check CIF before sending packet!" << std::endl;
 		while(!cif_has_room_for(packet_tbs)) {
 			continue;
 		}
@@ -587,6 +591,7 @@ static void* send_cif(void* ptr){
 
 		}
 	}
+	//close(sock_raw);
 }
 
 
@@ -842,6 +847,7 @@ static bool update_state(MyIpHdr* ip_header, MyTcpHdr* tcp_header, double cur_ti
 			return true;
 		} else if(is_from_server(ip_header->sourceIP, ip_header->destIP)) {
 			if (tcp_header->syn != 0 && tcp_header->ack != 0) {
+				std::cout << "A SYN/ACK packet is received!" <<std::endl;
 				realtime_flow_state = FlowState::Flow;
 				real_time_flow_start_time = cur_time;
 				struct timeval sys_tv;

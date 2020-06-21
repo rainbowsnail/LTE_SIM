@@ -1,5 +1,5 @@
 CXX := g++
-CXXFLAGS := -std=c++14 -flto -march=native -O2
+CXXFLAGS := -g -std=c++14 -flto -march=native -O2
 CXXLIBS := -lboost_program_options -lpthread -lpcap
 
 OBJDIR := obj

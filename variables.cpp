@@ -23,6 +23,12 @@ std::queue< std::string> client_filename_queue;
 std::queue< std::string> queue_filename_queue;
 std::string queue_filename;
 
+/// Vector storing captured packets
+//std::queue<MyPacket*> captured_sif_packets;
+//std::queue<MyPacket*> captured_cif_packets;
+SafeQueue<MyPacket*> captured_sif_packets;
+SafeQueue<MyPacket*> captured_cif_packets;
+
 /// Repeat times for each trace
 int repeat_times;
 bool rtt_delay;

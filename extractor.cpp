@@ -411,6 +411,7 @@ static void read_csv(std::string filename, std::vector<std::vector<std::string> 
 		//cout << endl;
 		(*p_vector).push_back(subArray);
 	}
+	file.close();
 	//std::cout << "Total line number: " << (*p_vector).size() <<std::endl;
 	//getchar();
 }
