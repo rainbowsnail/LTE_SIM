@@ -20,7 +20,9 @@
 static char packetBuf[67108864];
 
 #define INTERFAXENAME "ens8"
-
+/*
+ *自定义信息
+ */
 typedef struct MyMessage{
     int ID;
     char info[256];
@@ -75,7 +77,7 @@ int main() {
 			//continue;
 		}
 		// printf("Received a connection from %s\n", (char*)inet_ntoa(remote_addr.sin_addr));
- 
+
 		//子进程段
 		//if (!fork()){
 			struct timeval flow_start_time;
@@ -111,7 +113,7 @@ int main() {
 				//	break;
 				//}
 			}
-			
+
 			/*
 			//接受client发送的请示信息
 			int rval;
