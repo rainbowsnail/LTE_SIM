@@ -2,6 +2,7 @@
 #define MACROS_HPP_
 
 /// Title of fields in CSV
+#define DATE "_ws.col.Time"
 #define TS "timestamp"
 #define IP_SRC "_ws.col.Source"
 #define IP_DST "_ws.col.Destination"

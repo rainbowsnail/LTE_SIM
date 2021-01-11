@@ -233,7 +233,13 @@ static void parse_option(int argc, char **argv) {
         string _sub; 
         while (getline(stream, _sub, ','))
             server_ip_vector.push_back(_sub);
+        server_ip_vector.push_back("10.4.112.4");
+        server_ip_vector.push_back("172.17.0.4");
+        server_ip_vector.push_back("172.17.0.6");
+        server_ip_vector.push_back("106.54.147.34");
+        server_ip_vector.push_back("106.54.147.38");
     } else {
+        //server_ip_vector.push_back("10.106.107.2");
         server_ip_vector.push_back("10.4.112.4");
         server_ip_vector.push_back("172.17.0.4");
         server_ip_vector.push_back("172.17.0.6");
@@ -245,17 +251,22 @@ static void parse_option(int argc, char **argv) {
         // std::string = vm["sip"].as<std::string>();
         stringstream stream(vm["tsip"].as<std::string>());
         string _sub; 
-        while (getline(stream, _sub, ','))
-            server_ip_vector.push_back(_sub);
+        //while (getline(stream, _sub, ','))
+        //    server_ip_vector.push_back(_sub);
+        server_ip = vm["tsip"].as<std::string>();
+        server_ip_vector.push_back(server_ip);
+        std::cout<<server_ip<<std::endl;
     } else {
-        server_ip = "10.4.112.4";
+        //server_ip_vector.push_back(10.106.107.2);
+        //server_ip = "10.106.107.2";
     }
 
     if (vm.count("tcip")) {
         client_ip = vm["tcip"].as<std::string>();
     } else {
-        client_ip = "10.4.96.4";
+        client_ip = "10.109.104.1";
     }
+    
     std::string folder;
     if (vm.count("folder")) {
         folder = vm["folder"].as<std::string>();
@@ -278,9 +289,11 @@ static void parse_option(int argc, char **argv) {
         //client_filename_vector.emplace_back(std::move(client_name));       
         
     } else if (vm.count("server") && vm.count("client")) {
-        server_filename_queue.push(folder + vm["server"].as<std::string>());
-        client_filename_queue.push(folder + vm["client"].as<std::string>()); 
-        queue_filename_queue.push("./tmp/" + vm["client"].as<std::string>());       
+        server_filename_queue.push(vm["server"].as<std::string>());
+        client_filename_queue.push(vm["client"].as<std::string>());
+        //server_filename_queue.push(folder + vm["server"].as<std::string>());
+        //client_filename_queue.push(folder + vm["client"].as<std::string>()); 
+        //queue_filename_queue.push("./tmp/" + vm["client"].as<std::string>());       
     } else if (vm.count("auto")) {
         int trace_count = std::stoi(vm["auto"].as<std::string>());
         for (int i = 1; i <= trace_count; ++i){

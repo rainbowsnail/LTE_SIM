@@ -19,7 +19,7 @@
 #define MAX_FLOW_DURATION 150.0
 static char packetBuf[67108864];
 
-#define INTERFAXENAME "ens8"
+#define INTERFAXENAME "veth7-6"
 
 typedef struct MyMessage{
     int ID;

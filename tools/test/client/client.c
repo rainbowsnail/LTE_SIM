@@ -13,9 +13,9 @@
 
 #define SERVPORT 3333
 #define MAXDATASIZE 100
-#define SERVER_IP "10.4.112.4"
+#define SERVER_IP "10.106.107.2"
 #define DATA  "this is a client message"
-#define INTERFAXENAME "ens7"
+#define INTERFAXENAME "veth2-4"
 #define PACKET_LEN 131072
 static char packetBuf[67108864];
 /*

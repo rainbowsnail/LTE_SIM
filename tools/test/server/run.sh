@@ -5,4 +5,4 @@
 # Created Time: Thu 07 May 2020 04:20:43 AM UTC
 #########################################################################
 #!/bin/bash
-bash autoserver.sh 350 1 ens8 ./result/server/
+ip netns exec ns7 bash autoserver.sh 350 1 veth7-6 ./result/server/

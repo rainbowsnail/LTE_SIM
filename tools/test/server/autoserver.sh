@@ -18,7 +18,7 @@ do
 	mkdir -p $result_folder/$i/
 	mtu=`sed -n ${i}p mtu.txt`
 	mtu=$((52+${mtu}))
-	ifconfig ens8 mtu ${mtu}
+	ifconfig veth7-6 mtu ${mtu}
 	for j in $(seq 1 $repeat_num);
 	do
 		save_path=$result_folder/$i/$j.pcap
@@ -29,8 +29,8 @@ do
 		#kill `pidof server`
 		#sleep $max_duration
 		sleep $guard_duration
-		kill `pidof tcpdump`
-		kill `pidof server`
+		#kill `pidof tcpdump`
+		#kill `pidof server`
 	done
 done
 #kill `pidof server`

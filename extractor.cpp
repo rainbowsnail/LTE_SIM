@@ -9,9 +9,11 @@
 #include <queue>
 #include <vector>
 #include <set>
+#include <time.h>
 #include <string.h>
 
 /// Column number in csv
+static int date_col = -1;
 static int ts_col = -1;
 static int ip_src_col = -1;
 static int ip_dst_col = -1;
@@ -69,6 +71,17 @@ std::vector<int> client_goodput_vector;//(DURATION*GRANU_SCALE,0);
 /// The vector storing server perceived rtt (ms)
 std::vector<double> server_rtt_vector;//(DURATION*GRANU_SCALE,MAX_FLOAT_NUM);
 std::vector<int> server_rtt_slot_vector;
+double get_ts(std::string date){
+	struct tm s;
+	double second;
+	//std::cout<<date<<std::endl;
+	sscanf(date.c_str(),"%d-%d-%d %d:%d:%lf", &s.tm_year,&s.tm_mon,&s.tm_mday,&s.tm_hour,&s.tm_min, &second);  
+	s.tm_year-=1900;
+	s.tm_mon-=1;
+	s.tm_sec = 0;
+	time_t t = mktime(&s);
+	return (double)t+second;
+}
 
 void extract_trace(std::string server_name, std::string client_name) {	
 	std::cout << "----------- trace extract start! ------------" << std::endl;
@@ -79,10 +92,11 @@ void extract_trace(std::string server_name, std::string client_name) {
     set_column_number(&(server_packet_vector[0]));
     std::cout << "----------- trace extract csv! ------------" << std::endl;
     build_client_map();
+    std::cout << "----------- trace extract goodput! ------------" << std::endl;
 	extract_goodput();
-	std::cout << "----------- trace extract goodput! ------------" << std::endl;
-	extract_loss();
 	std::cout << "----------- trace extract loss! ------------" << std::endl;
+	extract_loss();
+	std::cout << "----------- trace extract rtt! ------------" << std::endl;
 	extract_min_rtt();
 	clean_up();
 	std::cout << "----------- trace extract complete! ------------" << std::endl;
@@ -100,7 +114,8 @@ static void extract_min_rtt() {
 		if (!is_server_ip(server_packet_vector[i][ip_dst_col])) {
 			continue;
 		}
-		double cur_packet_ts = std::stod(server_packet_vector[i][ts_col]);
+		//double cur_packet_ts = std::stod(server_packet_vector[i][ts_col]);
+		double cur_packet_ts = get_ts(server_packet_vector[i][date_col]);
 		int index_left = (cur_packet_ts - server_flow_start_time)*GRANU_SCALE;
 		int index_right = index_left + RTT_WINDOW * GRANU_SCALE;
 		if (index_right > MAX_FLOW_DURATION * GRANU_SCALE) {
@@ -163,10 +178,12 @@ static void extract_min_rtt() {
 static void extract_loss() {
 	for (int i = 1; i < server_packet_vector.size();i++) {
 		//std::cout << i <<std::endl;
-		double cur_packet_ts = std::stod(server_packet_vector[i][ts_col]);
+		//double cur_packet_ts = std::stod(server_packet_vector[i][ts_col]);
+		double cur_packet_ts = get_ts(server_packet_vector[i][date_col]);
 		
 		// Set flow starting time
-		if (server_flow_start_time == 0 && server_packet_vector[i][syn_col].compare("1") == 0) {
+		if (server_flow_start_time == 0 ) {
+		//if (server_flow_start_time == 0 && server_packet_vector[i][syn_col].compare("1") == 0) {
 			server_flow_start_time = cur_packet_ts;
 		}
 
@@ -242,7 +259,8 @@ static void extract_goodput() {
 	for (int i = 1; i < client_packet_vector.size();i++) {
 		//std::cout << i << std::endl;
 		// Current packet timestamp
-		double cur_packet_ts = std::stod(client_packet_vector[i][ts_col]);
+		//double cur_packet_ts = std::stod(client_packet_vector[i][ts_col]);
+		double cur_packet_ts = get_ts(client_packet_vector[i][date_col]);
 		
 		// Set flow starting time
 		if (client_flow_start_time == 0 && client_packet_vector[i][syn_col].compare("1") == 0) {
@@ -281,8 +299,8 @@ static void extract_goodput() {
 static void set_column_number(std::vector<std::string> *fields) {
 	for (int i = 0; i < fields->size();i++) {
 		//std::cout << (*fields)[i] << " ";
-        if ((*fields)[i].compare(TS) == 0) {
-			ts_col = i;
+        if ((*fields)[i].compare(DATE) == 0) {
+			date_col = i;
 		} else if ((*fields)[i].compare(IP_SRC) == 0) {
 			ip_src_col = i;
 		} else if ((*fields)[i].compare(IP_DST) == 0) {
@@ -316,7 +334,7 @@ static void set_column_number(std::vector<std::string> *fields) {
 		
 	}
 	/// ts_col might be 0
-	if (ts_col < 0 || ip_src_col < 0
+	if (date_col < 0 || ip_src_col < 0
 		 || ip_dst_col < 0 || payload_len_col < 0
 		 || ack_col < 0 || syn_col < 0
 		 || fin_col < 0 || rst_col < 0 
@@ -333,13 +351,17 @@ static void build_client_map(){
 	//std::cout << client_packet_vector.size() << std::endl;
 	for (int i = 0; i < client_packet_vector.size(); ++i) {
 		//auto packet = client_packet_vector[i];
+
 		if (is_server_ip(client_packet_vector[i][ip_dst_col]))
 			continue;
+		
 		struct simple_packet new_packet;
 		//new_packet.ip = packet[ip_dst_col];
 		new_packet.seq = client_packet_vector[i][seq_col];//.compare(packet[seq_col]) == 0
+		
 		new_packet.tsval = client_packet_vector[i][tsval_col];//.compare(packet[tsval_col]) == 0
 		new_packet.tsecr = client_packet_vector[i][tsecr_col];
+		
 		client_packet_set.insert(new_packet);
 	}
 	//std::cout << "client map size = " << client_packet_set.size() << std::endl;
@@ -411,6 +433,8 @@ static void read_csv(std::string filename, std::vector<std::vector<std::string> 
 		//cout << endl;
 		(*p_vector).push_back(subArray);
 	}
+	file.close();
+	(*p_vector).pop_back();
 	//std::cout << "Total line number: " << (*p_vector).size() <<std::endl;
 	//getchar();
 }
