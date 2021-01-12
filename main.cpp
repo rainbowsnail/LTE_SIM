@@ -233,24 +233,25 @@ static void parse_option(int argc, char **argv) {
         string _sub; 
         while (getline(stream, _sub, ','))
             server_ip_vector.push_back(_sub);
-        server_ip_vector.push_back("10.4.112.4");
-        server_ip_vector.push_back("172.17.0.4");
-        server_ip_vector.push_back("172.17.0.6");
+        //server_ip_vector.push_back("10.4.112.4");
+        //server_ip_vector.push_back("172.17.0.4");
+        //server_ip_vector.push_back("172.17.0.6");
+        server_ip_vector.push_back("172.17.0.16");
         server_ip_vector.push_back("106.54.147.34");
         server_ip_vector.push_back("106.54.147.38");
     } else {
         //server_ip_vector.push_back("10.106.107.2");
-        server_ip_vector.push_back("10.4.112.4");
-        server_ip_vector.push_back("172.17.0.4");
-        server_ip_vector.push_back("172.17.0.6");
+        //server_ip_vector.push_back("10.4.112.4");
+        //server_ip_vector.push_back("172.17.0.4");
+        server_ip_vector.push_back("172.17.0.16");
         server_ip_vector.push_back("106.54.147.34");
         server_ip_vector.push_back("106.54.147.38");
     }
 
     if (vm.count("tsip")) {
         // std::string = vm["sip"].as<std::string>();
-        stringstream stream(vm["tsip"].as<std::string>());
-        string _sub; 
+        //stringstream stream(vm["tsip"].as<std::string>());
+        //string _sub; 
         //while (getline(stream, _sub, ','))
         //    server_ip_vector.push_back(_sub);
         server_ip = vm["tsip"].as<std::string>();

@@ -95,7 +95,7 @@ void extract_trace(std::string server_name, std::string client_name) {
     std::cout << "----------- trace extract goodput! ------------" << std::endl;
 	extract_goodput();
 	std::cout << "----------- trace extract loss! ------------" << std::endl;
-	extract_loss();
+	//extract_loss();
 	std::cout << "----------- trace extract rtt! ------------" << std::endl;
 	extract_min_rtt();
 	clean_up();
@@ -104,31 +104,42 @@ void extract_trace(std::string server_name, std::string client_name) {
 
 static void extract_min_rtt() {
 	// RTT_WINDOW;
-	if (server_flow_start_time == 0) {
-		std::cerr << "server_flow_start_time = zero!" << std::endl;
-		return;
-	}
+	//if (server_flow_start_time == 0) {
+	//	std::cerr << "server_flow_start_time = zero!" << std::endl;
+	//	return;
+	//}
 	bool _start = false;
 	for (int i = 1; i < server_packet_vector.size(); ++i) {
 		// Skip if packet is not an ACK
 		if (!is_server_ip(server_packet_vector[i][ip_dst_col])) {
+			//std::cout << server_packet_vector[i][ip_dst_col] << std::endl;
 			continue;
 		}
 		//double cur_packet_ts = std::stod(server_packet_vector[i][ts_col]);
 		double cur_packet_ts = get_ts(server_packet_vector[i][date_col]);
+		if (server_flow_start_time == 0 ) {
+		//if (server_flow_start_time == 0 && server_packet_vector[i][syn_col].compare("1") == 0) {
+			server_flow_start_time = cur_packet_ts;
+			std::cout << server_flow_start_time << std::endl;
+		}
+
 		int index_left = (cur_packet_ts - server_flow_start_time)*GRANU_SCALE;
 		int index_right = index_left + RTT_WINDOW * GRANU_SCALE;
 		if (index_right > MAX_FLOW_DURATION * GRANU_SCALE) {
 			index_right = MAX_FLOW_DURATION * GRANU_SCALE;
 		} 
-		
-		if (server_packet_vector[i][rtt_col].size() == 0)
+		//std::cout << server_packet_vector[i][rtt_col] << std::endl;
+		//std::cout << server_packet_vector[i][rtt_col].size() << std::endl;
+		if (server_packet_vector[i][rtt_col].find('.') == std::string::npos)
 			continue;
 		if ( !_start ){
 			index_left = 0;
 			_start = true;
 		}
 		double tmp_rtt = std::stod(server_packet_vector[i][rtt_col]);
+		//std::cout << server_packet_vector[i][rtt_col] << std::endl;
+		//std::cout << tmp_rtt << std::endl;
+
 		for (int index = index_left; index < index_right; ++index) {
 			//std::cout << index << "	tmp_rtt:" <<tmp_rtt<< std::endl;
 
@@ -185,12 +196,13 @@ static void extract_loss() {
 		if (server_flow_start_time == 0 ) {
 		//if (server_flow_start_time == 0 && server_packet_vector[i][syn_col].compare("1") == 0) {
 			server_flow_start_time = cur_packet_ts;
+			std::cout << server_flow_start_time << std::endl;
 		}
 
 		// If flow has not started, skip this packet and check next packet
-		if (server_flow_start_time == 0){
-			continue;
-		}
+		//if (server_flow_start_time == 0){
+		//	continue;
+		//}
 
 		// If it exceeds the Max flow duration, discard remaining packets
 		if (cur_packet_ts - server_flow_start_time >= MAX_FLOW_DURATION)
@@ -263,14 +275,15 @@ static void extract_goodput() {
 		double cur_packet_ts = get_ts(client_packet_vector[i][date_col]);
 		
 		// Set flow starting time
-		if (client_flow_start_time == 0 && client_packet_vector[i][syn_col].compare("1") == 0) {
+		if (client_flow_start_time == 0 ) {//&& client_packet_vector[i][syn_col].compare("1") == 0
 			client_flow_start_time = cur_packet_ts;
+			std::cout << client_flow_start_time << std::endl;
 		}
 
 		// If flow has not started, skip this packet and check next packet
-		if (client_flow_start_time == 0){
-			continue;
-		}
+		//if (client_flow_start_time == 0){
+		//	continue;
+		//}
 
 		// If dst IP is server IP, skip this ACK packet
 		if (is_server_ip(client_packet_vector[i][ip_dst_col])) {
@@ -349,9 +362,12 @@ static void set_column_number(std::vector<std::string> *fields) {
 static void build_client_map(){
 	client_packet_set.clear();
 	//std::cout << client_packet_vector.size() << std::endl;
+	double start_time = 0;
 	for (int i = 0; i < client_packet_vector.size(); ++i) {
 		//auto packet = client_packet_vector[i];
-
+		double cur_packet_ts = get_ts(client_packet_vector[i][date_col]);
+		if(start_time==0)start_time = cur_packet_ts;
+		if(cur_packet_ts - start_time >= MAX_FLOW_DURATION) break;
 		if (is_server_ip(client_packet_vector[i][ip_dst_col]))
 			continue;
 		
@@ -377,6 +393,7 @@ static bool quick_in_client_vector(const std::vector< std::string> *server_packe
 		//std::cout << (*server_packet)[seq_col] << "; " <<(*server_packet)[tsval_col] << std::endl;
 		return false;
 	}
+	client_packet_set.erase(key);
 	//std::cout << "find a packet" << std::endl;
 	return true;
 }
@@ -397,7 +414,8 @@ static bool in_client_vector(const std::vector< std::string> *server_packet){
 /// Server may have different possible ip, thus check the vector
 static bool is_server_ip(std::string cur_ip){
 	for (auto ip : server_ip_vector){
-		if (ip.compare(cur_ip) == 0){
+		//if (ip.compare(cur_ip) == 0){
+		if (cur_ip.find(ip)!= std::string::npos){
 			return true;
 		}
 	}

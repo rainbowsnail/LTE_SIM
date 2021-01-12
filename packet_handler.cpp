@@ -106,6 +106,8 @@ static bool should_drop(float loss_rate){
 
 static float get_loss_rate(MyPacket * packet_tbs) {
 	double cur_packet_ts = tv2ts(packet_tbs->pkthdr.ts);
+	double time_inv = cur_packet_ts - real_time_flow_start_time;
+	if (time_inv < 0 || time_inv > MAX_FLOW_DURATION) return 0;
 	int index = (cur_packet_ts - real_time_flow_start_time)*GRANU_SCALE;
 	return server_loss_manage_vector[index];
 }
@@ -145,6 +147,7 @@ static bool sif_has_rtt_slot(MyPacket * packet_tbs){
 }
 
 static bool cif_has_room_for(MyPacket * packet_tbs){
+	//std::cout<<"cif_has_room_for"<<std::endl;
 	double cur_packet_ts = tv2ts(packet_tbs->pkthdr.ts);
 	u_int packet_size = packet_tbs->pkthdr.len - sizeof(MyEthHdr);
 	struct timeval sys_tv;
@@ -154,9 +157,11 @@ static bool cif_has_room_for(MyPacket * packet_tbs){
 	double should_delay = server_rtt_manage_vector[index];
 	//std::cout << index << "	should_delay:" <<server_rtt_manage_vector[index]<< std::endl;
 	//std::cout << should_delay << std::endl;
+	//should_delay = 0;
 	double skrew = real_time_flow_start_time - real_time_flow_start_sys_time;
 	//double has_been_delayed = cur_time + skrew - cur_packet_ts;
 	double has_been_delayed = cur_time - cur_packet_ts;
+	//std::cout << has_been_delayed<< std::endl;
 	while (has_been_delayed < should_delay) {
 		gettimeofday(&sys_tv, NULL);
 		cur_time = tv2ts(sys_tv);
@@ -178,10 +183,12 @@ static bool cif_has_room_for(MyPacket * packet_tbs){
 		cur_time = tv2ts(sys_tv);
 		index = (cur_time - real_time_flow_start_time)*GRANU_SCALE;
 		if(cur_time - real_time_flow_start_sys_time >= MAX_FLOW_DURATION) {
+			std::cout<<"return true"<<std::endl;
 			return true;
 		}
 	}
 	client_goodput_manage_vector[index] -= packet_size;
+	//std::cout<<"return true"<<std::endl;
 	return true;
 }
 
@@ -512,6 +519,7 @@ static int cif_socket(){
 	cif_sock = sock_raw;
 	return cif_sock;
 }
+
 static void* send_cif(void* ptr){
 	//std::cout << "in send_cif" << std::endl;
 	char *client_dev;
@@ -561,13 +569,14 @@ static void* send_cif(void* ptr){
 		//if (cur_time - real_time_flow_start_sys_time >= MAX_FLOW_DURATION) {
 		//	break;
 		//}
-		
+		//std::cout << "get a packet from queue on CIF!" << std::endl;
 		u_int packet_size= packet_tbs->pkthdr.len;
 		float cur_loss_rate = get_loss_rate(packet_tbs);
 		if (should_drop(cur_loss_rate)) {
 			delete packet_tbs;
 			continue;
 		}
+		//std::cout << "check CIF before sending packet!" << std::endl;
 		while(!cif_has_room_for(packet_tbs)) {
 			continue;
 		}
@@ -587,6 +596,7 @@ static void* send_cif(void* ptr){
 
 		}
 	}
+	//close(sock_raw);
 }
 
 
@@ -618,11 +628,11 @@ void packet_handler_initiate(){
 	//pthread_t* client_send_thread = new pthread_t;
 	//pthread_t* server_send_thread = new pthread_t;
 	
-	queue_file = std::ofstream(queue_filename.c_str());
-	std::cout << queue_filename << std::endl;
-    if (queue_file.fail()) {
-        std::cerr << "Failed to open range file: " << std::endl;
-    }
+	//queue_file = std::ofstream(queue_filename.c_str());
+	//std::cout << queue_filename << std::endl;
+    //if (queue_file.fail()) {
+    //    std::cerr << "Failed to open range file: " << std::endl;
+    //}
 	/// Create thread
 	client_send_thread = new pthread_t;
 	server_send_thread = new pthread_t;
@@ -760,6 +770,7 @@ static void cif_send_packet(const struct pcap_pkthdr* pkthdr, const u_char * pac
 }
 
 static bool is_end() {
+	return false;
 	//std::cout<< "before lock" <<std::endl;
 	flow_state_mutex.lock();
 	//std::cout<< "after lock" <<std::endl;
@@ -833,6 +844,7 @@ static bool update_state(MyIpHdr* ip_header, MyTcpHdr* tcp_header, double cur_ti
 		}
 		break;
 	case FlowState::Syn:
+		
 		if (is_from_client(ip_header->sourceIP, ip_header->destIP) && tcp_header->syn != 0) {
 		//if (is_server_ip(nip2a(ip_header->destIP)) && is_client_ip(nip2a(ip_header->sourceIP)) && tcp_header->syn != 0) {
 			std::cout << "A retransmitted SYN packet is received!" <<std::endl;
@@ -842,6 +854,7 @@ static bool update_state(MyIpHdr* ip_header, MyTcpHdr* tcp_header, double cur_ti
 			return true;
 		} else if(is_from_server(ip_header->sourceIP, ip_header->destIP)) {
 			if (tcp_header->syn != 0 && tcp_header->ack != 0) {
+				std::cout << "A SYN/ACK packet is received!" <<std::endl;
 				realtime_flow_state = FlowState::Flow;
 				real_time_flow_start_time = cur_time;
 				struct timeval sys_tv;
@@ -850,6 +863,7 @@ static bool update_state(MyIpHdr* ip_header, MyTcpHdr* tcp_header, double cur_ti
 				flow_state_mutex.unlock();
 				return true;
 			} else if (tcp_header->syn != 0) {
+				std::cerr << "not a server SYN packet at state Syn" << std::endl;
 				realtime_flow_state = FlowState::SynAck;
 				flow_state_mutex.unlock();
 				return true;
@@ -861,6 +875,9 @@ static bool update_state(MyIpHdr* ip_header, MyTcpHdr* tcp_header, double cur_ti
 		}
 		break;
 	case FlowState::SynAck:
+		//std::cout << "a packet!" <<std::endl;
+		flow_state_mutex.unlock();
+		return true;
 		if(is_from_client(ip_header->sourceIP, ip_header->destIP)) {
 			realtime_flow_state = FlowState::Flow;
 		} else {

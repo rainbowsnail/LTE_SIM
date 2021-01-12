@@ -8,7 +8,7 @@ HEADERS := $(wildcard *.hpp)
 OBJS :=  $(patsubst %.cpp,%.o,$(SOURCES))
 OBJS := $(addprefix $(OBJDIR)/, $(OBJS))
 
-simulator: $(OBJS)
+emulator: $(OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJS) $(CXXLIBS)
 
 $(addprefix $(OBJDIR)/,%.o): %.cpp *.hpp | $(OBJDIR)
@@ -20,4 +20,4 @@ $(OBJDIR):
 .PHONY: clean
 clean:
 	rm -rf obj
-	rm simulator
+	rm emulator
