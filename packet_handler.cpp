@@ -810,6 +810,7 @@ static bool update_state(MyIpHdr* ip_header, MyTcpHdr* tcp_header, double cur_ti
 		return false;
 	flow_state_mutex.lock();
 	// whenever a RST is received, reset
+	/*
 	if (tcp_header->rst != 0) {
 		if (tcp_header->sport == client_port || tcp_header->dport == client_port){
 			if ((tcp_header->sport == client_port || tcp_header->dport == client_port)) {
@@ -826,7 +827,7 @@ static bool update_state(MyIpHdr* ip_header, MyTcpHdr* tcp_header, double cur_ti
 			return false;
 		}
 		
-	}
+	}*/
 
 	switch (realtime_flow_state) {
 	case FlowState::Waiting:
