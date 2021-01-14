@@ -836,6 +836,11 @@ static bool update_state(MyIpHdr* ip_header, MyTcpHdr* tcp_header, double cur_ti
 			std::cout << "A SYN packet is received!" <<std::endl;
 			realtime_flow_state = FlowState::Syn;
 			client_port = tcp_header->sport;
+			realtime_flow_state = FlowState::Flow;
+			real_time_flow_start_time = cur_time;
+			struct timeval sys_tv;
+			gettimeofday(&sys_tv, NULL);
+			real_time_flow_start_sys_time = tv2ts(sys_tv);
 			flow_state_mutex.unlock();
 			return true;
 		} else {
