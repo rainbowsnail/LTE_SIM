@@ -845,7 +845,8 @@ static bool update_state(MyIpHdr* ip_header, MyTcpHdr* tcp_header, double cur_ti
 		}
 		break;
 	case FlowState::Syn:
-		
+		flow_state_mutex.unlock();
+		return true;
 		if (is_from_client(ip_header->sourceIP, ip_header->destIP) && tcp_header->syn != 0) {
 		//if (is_server_ip(nip2a(ip_header->destIP)) && is_client_ip(nip2a(ip_header->sourceIP)) && tcp_header->syn != 0) {
 			std::cout << "A retransmitted SYN packet is received!" <<std::endl;
