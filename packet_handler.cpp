@@ -806,13 +806,16 @@ static bool belong_to_flow(u_int src_ip, u_int dst_ip) {
 
 //return true if the packet should be forwarded
 static bool update_state(MyIpHdr* ip_header, MyTcpHdr* tcp_header, double cur_time) {
-	if (belong_to_flow(ip_header->sourceIP, ip_header->destIP) == false)
+	if (belong_to_flow(ip_header->sourceIP, ip_header->destIP) == false){
+		std::cout<<"not a flow packet"<<std::endl;
 		return false;
+	}
 	flow_state_mutex.lock();
 	// whenever a RST is received, reset
 	
 	if (tcp_header->rst != 0) {
 		std::cout << "A RST packet is received!" <<std::endl;
+		flow_state_mutex.unlock();
 		return true;
 		if (tcp_header->sport == client_port || tcp_header->dport == client_port){
 			if ((tcp_header->sport == client_port || tcp_header->dport == client_port)) {
