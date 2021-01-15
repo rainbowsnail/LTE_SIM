@@ -111,10 +111,12 @@ static void extract_min_rtt() {
 	bool _start = false;
 	for (int i = 1; i < server_packet_vector.size(); ++i) {
 		// Skip if packet is not an ACK
-		if (!is_server_ip(server_packet_vector[i][ip_dst_col])) {
-			//std::cout << server_packet_vector[i][ip_dst_col] << std::endl;
+		if (server_packet_vector[i][rtt_col].find('.') == std::string::npos)
 			continue;
-		}
+		//if (!is_server_ip(server_packet_vector[i][ip_dst_col])) {
+		//	std::cout << server_packet_vector[i][ip_dst_col] << std::endl;
+		//continue;
+		//}
 		double cur_packet_ts = std::stod(server_packet_vector[i][ts_col]);
 		//double cur_packet_ts = get_ts(server_packet_vector[i][date_col]);
 		if (server_flow_start_time == 0 ) {
@@ -127,11 +129,15 @@ static void extract_min_rtt() {
 		int index_right = index_left + RTT_WINDOW * GRANU_SCALE;
 		if (index_right > MAX_FLOW_DURATION * GRANU_SCALE) {
 			index_right = MAX_FLOW_DURATION * GRANU_SCALE;
-		} 
-		//std::cout << server_packet_vector[i][rtt_col] << std::endl;
+		}
+		if (index_left < PRE_FLOW_DURATION * GRANU_SCALE && index_right > PRE_FLOW_DURATION * GRANU_SCALE){
+			index_right = PRE_FLOW_DURATION * GRANU_SCALE;
+		}
+		//::cout << server_packet_vector[i][rtt_col] << std::endl;
 		//std::cout << server_packet_vector[i][rtt_col].size() << std::endl;
-		if (server_packet_vector[i][rtt_col].find('.') == std::string::npos)
-			continue;
+		
+		//std::cout << server_packet_vector[i][rtt_col] << std::endl;
+		
 		if ( !_start ){
 			index_left = 0;
 			_start = true;
@@ -159,6 +165,9 @@ static void extract_min_rtt() {
 			pre_rtt = server_rtt_vector[i];
 		}
 	}
+	//for (auto tmp : server_rtt_vector) {
+	//	std::cout << tmp << std::endl;
+	//}
 	//std::cout << "extract min RTT!" << std::endl;
 	/*
 	for (int i = 1; i < server_packet_vector.size(); i++) {

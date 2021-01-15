@@ -183,7 +183,7 @@ static bool cif_has_room_for(MyPacket * packet_tbs){
 		cur_time = tv2ts(sys_tv);
 		index = (cur_time - real_time_flow_start_time)*GRANU_SCALE;
 		if(cur_time - real_time_flow_start_sys_time >= MAX_FLOW_DURATION) {
-			std::cout<<"return true"<<std::endl;
+			//std::cout<<"return true"<<std::endl;
 			return true;
 		}
 	}
@@ -810,8 +810,10 @@ static bool update_state(MyIpHdr* ip_header, MyTcpHdr* tcp_header, double cur_ti
 		return false;
 	flow_state_mutex.lock();
 	// whenever a RST is received, reset
-	/*
+	
 	if (tcp_header->rst != 0) {
+		std::cout << "A RST packet is received!" <<std::endl;
+		return true;
 		if (tcp_header->sport == client_port || tcp_header->dport == client_port){
 			if ((tcp_header->sport == client_port || tcp_header->dport == client_port)) {
 				std::cout << "A RST packet is received!" <<std::endl;
@@ -827,7 +829,7 @@ static bool update_state(MyIpHdr* ip_header, MyTcpHdr* tcp_header, double cur_ti
 			return false;
 		}
 		
-	}*/
+	}
 
 	switch (realtime_flow_state) {
 	case FlowState::Waiting:

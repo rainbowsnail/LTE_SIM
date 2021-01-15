@@ -8,7 +8,8 @@ constexpr int DURATION = 150;
 constexpr int RTT_WINDOW = 10;
 constexpr float MAX_FLOAT_NUM = 10000000;
 /// Parameter: 
-constexpr int MAX_FLOW_DURATION = 50;
+constexpr int MAX_FLOW_DURATION = 45;
+constexpr int PRE_FLOW_DURATION = 15;
 
 /// Patameter: granularity: duration of each time slot 
 /// to calculate goodput and loss rate 
