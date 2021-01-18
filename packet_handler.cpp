@@ -194,7 +194,7 @@ static bool cif_has_room_for(MyPacket * packet_tbs){
 
 bool server_packet_handler(const struct pcap_pkthdr* packet_header, const u_char* packet_content, pcap_t *handler){
 	//server_pcap_t = handler;
-	//std::cout << "A packet is captured at server interface!" <<std::endl;
+	std::cout << "A packet is captured at server interface!" <<std::endl;
 	// (const time_t*)&packet_header->ts.tv_sec;
 	MyEthHdr* ethernet=(MyEthHdr *)packet_content;
 
@@ -234,7 +234,7 @@ bool server_packet_handler(const struct pcap_pkthdr* packet_header, const u_char
 /// deal with ACK packets
 bool client_packet_handler(const struct pcap_pkthdr* packet_header, const u_char* packet_content, pcap_t *handler){
 	//client_pcap_t = handler;
-	//std::cout << "A packet is captured at client interface!" <<std::endl;
+	std::cout << "A packet is captured at client interface!" <<std::endl;
 	// (const time_t*)&packet_header->ts.tv_sec;
 	MyEthHdr* ethernet=(MyEthHdr *)packet_content;
 
