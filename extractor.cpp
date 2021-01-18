@@ -126,13 +126,22 @@ static void extract_min_rtt() {
 		}
 
 		int index_left = (cur_packet_ts - server_flow_start_time)*GRANU_SCALE;
+		int index_right = index_left;
+		index_left = index_left - RTT_WINDOW * GRANU_SCALE;
+		if (index_left < 0){index_left = 0;}
+		else if (index_left < PRE_FLOW_DURATION * GRANU_SCALE && index_right >= PRE_FLOW_DURATION * GRANU_SCALE) {
+			index_left = PRE_FLOW_DURATION * GRANU_SCALE;
+		} 
+
+		/*
+		int index_left = (cur_packet_ts - server_flow_start_time)*GRANU_SCALE;
 		int index_right = index_left + RTT_WINDOW * GRANU_SCALE;
 		if (index_right > MAX_FLOW_DURATION * GRANU_SCALE) {
 			index_right = MAX_FLOW_DURATION * GRANU_SCALE;
 		}
 		if (index_left < PRE_FLOW_DURATION * GRANU_SCALE && index_right > PRE_FLOW_DURATION * GRANU_SCALE){
 			index_right = PRE_FLOW_DURATION * GRANU_SCALE;
-		}
+		}*/
 		//::cout << server_packet_vector[i][rtt_col] << std::endl;
 		//std::cout << server_packet_vector[i][rtt_col].size() << std::endl;
 		
